@@ -2,3 +2,9 @@ api-venv/
 __pycache__/
 *.pyc
 .env
+.env.*
+test.db
+tests/test_real_db_connection.py
+tests/run_db_tests.py
+*.log
+tests/venv_tests/*
