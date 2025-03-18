@@ -1,0 +1,6 @@
+/data
+/pdf_pipeline_env
+.env
+*.log
+.DS_Store
+__pycache__/
