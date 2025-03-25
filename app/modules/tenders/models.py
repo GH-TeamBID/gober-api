@@ -1,50 +1,30 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Text
+from sqlalchemy.sql import func
 from app.core.database import Base
-import datetime
-from enum import Enum as PyEnum
 
-class TenderStatus(str, PyEnum):
-    ACTIVE = "active"
-    CLOSED = "closed"
-    AWARDED = "awarded"
-    CANCELLED = "cancelled"
-
-class TenderType(str, PyEnum):
-    PUBLIC = "public"
-    PRIVATE = "private"
-    INTERNATIONAL = "international"
-    NATIONAL = "national"
-
-# This model represents the relationship between clients and tenders
-# It's used to track which tenders are saved by which clients
-class ClientTender(Base):
-    __tablename__ = "client_tenders"
+class UserTender(Base):
+    """Model representing a user's saved tender"""
+    __tablename__ = "user_tenders"
     
-    id = Column(Integer, primary_key=True, index=True)
-    client_id = Column(Integer, ForeignKey("user.id"), nullable=False)  # Updated to reference "user" table
-    tender_id = Column(String(100), nullable=False)  # This is the ID of the tender in Neptune
-    saved_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
+    id = Column(String(255), primary_key=True)
+    user_id = Column(String(255), nullable=False, index=True)
+    tender_uri = Column(String(1024), nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    situation = Column(String(50), nullable=True)
     
-    # Relationships
-    client = relationship("app.modules.auth.models.User")
+    # Ensure a user can only save a specific tender once
+    __table_args__ = (
+        UniqueConstraint('user_id', 'tender_uri', name='uq_user_tender'),
+    )
 
-# This model stores AI-generated summaries for tenders
-class SummaryTender(Base):
-    __tablename__ = "summary_tenders"
+class TenderDocuments(Base):
+    """Model representing a summary for a tender"""
+    __tablename__ = "tender_documents"
     
-    id = Column(Integer, primary_key=True, index=True)
-    tender_id = Column(String(100), nullable=False)  # This is the ID of the tender in Neptune
-    summary_content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
-    updated_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
-
-# This model stores AI-generated documents for tenders
-class DocumentTender(Base):
-    __tablename__ = "document_tenders"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    tender_id = Column(String(100), nullable=False)  # This is the ID of the tender in Neptune
-    document_content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
-    updated_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc), onupdate=datetime.datetime.now(datetime.timezone.utc))
+    id = Column(String(255), primary_key=True)
+    tender_uri = Column(String(1024), nullable=False, unique=True, index=True)
+    summary = Column(Text, nullable=True)
+    url_document = Column(String(1024), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

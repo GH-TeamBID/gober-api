@@ -23,7 +23,10 @@ class DocumentRetrievalService:
         Returns:
             Local filepath to the downloaded PDF, or None if download failed
         """
-        if not url.strip():
+        # Make sure url is a string
+        url = str(url) if url is not None else ""
+        
+        if not url:
             self.logger.warning("Empty URL provided")
             return None
 
@@ -76,16 +79,21 @@ class DocumentRetrievalService:
         """
         pdf_paths = {}
         tasks = []
+        doc_ids = []
 
         for doc_id, url in urls.items():
-            if url.strip():
-                tasks.append(self.retrieve_document(url))
+            # Convert URL to string if it isn't already
+            url_str = str(url) if url is not None else ""
+            
+            if url_str:
+                tasks.append(self.retrieve_document(url_str))
+                doc_ids.append(doc_id)
 
         # Execute downloads in parallel
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
-        for i, (doc_id, _) in enumerate([(k, v) for k, v in urls.items() if v.strip()]):
+        for i, doc_id in enumerate(doc_ids):
             result = results[i]
             if isinstance(result, Exception):
                 self.logger.error(f"Failed to download PDF for {doc_id}: {result}")

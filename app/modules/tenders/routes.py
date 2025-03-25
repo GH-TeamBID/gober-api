@@ -1,185 +1,241 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Path
-from sqlalchemy.orm import Session
-from app.modules.tenders import schemas, services, models
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Body, Query
+from app.modules.tenders import schemas, services
+from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
 from app.modules.auth.models import User
-from app.core.database import get_db
-from typing import Optional, List, Dict, Any
-import datetime
+from app.core.database import get_neptune_client
+from sqlalchemy.orm import Session
+from app.core.database import get_db    
+import logging
 
-router = APIRouter()
+router = APIRouter(tags=["tenders"])
 
-@router.get("/", response_model=schemas.TenderListResponse)
+# Configure logging
+logger = logging.getLogger(__name__)
+
+@router.get("/", response_model=schemas.PaginatedTenderResponse)
 async def get_tenders(
-    page: int = Query(1, ge=1, description="Page number, starting from 1"),
-    limit: int = Query(10, ge=1, le=100, description="Number of items per page"),
-    sort_by: str = Query("publish_date", pattern="^(publish_date|title|budget|close_date|organization)$"),
-    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
-    type: Optional[str] = None,
-    status: Optional[str] = None,
-    organization: Optional[str] = None,
-    location: Optional[str] = None,
-    category: Optional[str] = None,
-    publication_date_from: Optional[datetime.datetime] = None,
-    publication_date_to: Optional[datetime.datetime] = None,
-    search: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    size: int = Query(10, ge=1, le=100, description="Number of items per page")
 ):
     """
-    Get a paginated list of tenders with filtering, sorting, and search.
+    Get a paginated list of tenders sorted by submission deadline.
     
-    If a search term is provided, it uses Meilisearch for full-text search
-    to find matching tender IDs, then retrieves the corresponding data from
-    the RDF database.
+    This endpoint retrieves a list of tender previews from the RDF graph database,
+    with pagination and sorting by submission deadline (most recent first).
     
-    Filters are applied to the RDF query, and pagination is handled based on
-    the filtered results.
+    - **page**: Page number (starting from 1)
+    - **size**: Number of items per page (default: 10, max: 100)
+    
+    Returns:
+        PaginatedTenderResponse: Paginated list of tender previews
     """
-    filters = {
-        "type": type,
-        "status": status,
-        "organization": organization,
-        "location": location,
-        "category": category,
-        "publication_date_from": publication_date_from,
-        "publication_date_to": publication_date_to,
-        "search": search
-    }
-    
-    # Remove None values
-    filters = {k: v for k, v in filters.items() if v is not None}
-    
-    client_id = current_user.id if current_user else None
-    result = await services.get_tenders(
-        db=db,
-        page=page,
-        limit=limit,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        filters=filters,
-        client_id=client_id
-    )
-    
-    return result
+    try:
+        return await services.get_tenders_paginated(page=page, size=size)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tenders: {str(e)}"
+        )
 
-@router.get("/{tender_id}", response_model=schemas.TenderDetail)
+@router.get("/detail/{tender_id}", response_model=schemas.TenderResponse)
 async def get_tender_detail(
-    tender_id: str = Path(..., description="The unique identifier of the tender"),
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
 ):
     """
     Get detailed information about a specific tender.
     
-    The tender details include all available metadata, attachments,
-    requirements, contact information, and other related information.
+    This endpoint retrieves full details of a tender procedure from the RDF graph database.
+    The tender is identified by either its full URI or its hash identifier.
+    
+    - **tender_id**: A string representing either the full URI of the tender or its hash identifier
+    
+    Returns:
+        TenderResponse: The complete tender details
     """
-    client_id = current_user.id if current_user else None
+    # Direct print for debugging router execution
+    print(f"ROUTER DIAGNOSTIC: Starting get_tender_detail for ID: {tender_id}")
+    
     try:
-        return await services.get_tender_detail(db=db, tender_id=tender_id, client_id=client_id)
+        tender = await services.get_tender_detail(tender_id)
+        return schemas.TenderResponse(
+            data=tender,
+            meta={
+                "source": "Neptune RDF Graph"
+            }
+        )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # Return a 404 with a clearer error message
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tender not found: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving tender: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tender: {str(e)}"
+        )
 
-@router.get("/preview/{tender_id}", response_model=schemas.TenderResponse)
-async def get_tender_preview(
-    tender_id: str = Path(..., description="The unique identifier of the tender"),
+@router.post("/save", response_model=schemas.UserTender)
+async def save_tender(
+    tender_data: schemas.SaveTenderRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
+):
+    """Save a tender for the current user"""
+    try:
+        # Create a UserTenderCreate object with the current user's ID
+        user_tender_data = schemas.UserTenderCreate(
+            user_id=str(current_user.id),
+            tender_uri=tender_data.tender_uri,
+            situation=tender_data.situation
+        )
+        
+        user_tender = services.save_tender_for_user(
+            db=db,
+            tender_data=user_tender_data
+        )
+        return user_tender
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving tender: {str(e)}")
+
+@router.delete("/unsave", status_code=204, response_model=None)
+async def unsave_tender(
+    request_data: schemas.UnsaveTenderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Remove a saved tender for the current user"""
+    try:
+        logger.debug(f"Attempting to unsave tender: {request_data.tender_uri} for user: {current_user.id}")
+        
+        result = services.unsave_tender_for_user(
+            db=db,
+            user_id=str(current_user.id),
+            tender_uri=request_data.tender_uri
+        )
+        
+        logger.debug(f"Unsave result: {result}")
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Tender not found in saved list"
+            )
+            
+        # For a 204 No Content response, return None
+        return None
+        
+    except ValueError as e:
+        logger.error(f"Value error in unsave_tender: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in unsave_tender: {str(e)}")
+        # Log full stack trace for debugging
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error unsaving tender: {str(e)}"
+        )
+
+@router.get("/saved", response_model=List[schemas.UserTender])
+async def get_saved_tenders(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all tenders saved by the current user"""
+    try:
+        user_tenders = services.get_user_saved_tenders(db, str(current_user.id))
+        return user_tenders
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving saved tenders: {str(e)}")
+
+@router.post("/summary", response_model=schemas.TenderSummary)
+async def create_or_update_summary(
+    summary_data: schemas.TenderSummaryCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create or update a summary for a tender (requires admin privileges)"""
+    # Check if user has admin privileges (adjust based on your role system)
+    from app.modules.auth.models import UserRole
+    if current_user.role != UserRole.ACCOUNT_MANAGER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions to create or update summaries"
+        )
+    
+    try:
+        summary = await services.create_or_update_tender_summary(
+            tender_uri=summary_data.tender_uri,
+            summary=summary_data.summary
+        )
+        return summary
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating or updating summary: {str(e)}")
+
+@router.get("/preview/{tender_id}", response_model=schemas.TenderPreview)
+async def get_tender_preview(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
 ):
     """
     Get a preview of a specific tender.
     
-    This endpoint returns a simplified view of the tender, suitable for
-    displaying in a list or search results.
+    This endpoint retrieves a preview of a tender with basic information like title,
+    description, budget, organization, etc. The tender is identified by either its
+    full URI or its hash identifier.
+    
+    - **tender_id**: A string representing either the full URI of the tender or its hash identifier
+    
+    Returns:
+        TenderPreview: The tender preview
     """
-    client_id = current_user.id if current_user else None
     try:
-        return services.get_tender(db=db, tender_id=tender_id, client_id=client_id)
+        return await services.get_tender_preview(tender_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tender not found: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving tender preview: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tender preview: {str(e)}"
+        )
 
-@router.post("/{tender_id}/save")
-async def toggle_save_tender(
-    tender_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Toggle save/unsave a tender for the current client.
-    Creates or removes a relationship in the ClientTender table.
-    """
-    return services.toggle_save_tender(db=db, tender_id=tender_id, client_id=current_user.id)
-
-@router.get("/saved", response_model=schemas.TenderListResponse)
-async def get_saved_tenders(
-    page: int = Query(1, ge=1, description="Page number, starting from 1"),
-    limit: int = Query(10, ge=1, le=100, description="Number of items per page"),
-    sort_by: str = Query("saved_at", pattern="^(saved_at|publish_date|title|budget|close_date|organization)$"),
-    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get a paginated list of tenders saved by the current client.
-    """
-    return await services.get_saved_tenders(
-        db=db,
-        client_id=current_user.id,
-        page=page,
-        limit=limit,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
-
-@router.post("/{tender_id}/index", status_code=202)
-async def trigger_tender_indexing(
-    tender_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Trigger indexing of a tender in Meilisearch.
-    This is an admin operation that updates the search index.
-    """
-    # Add job to background tasks
-    background_tasks.add_task(services.index_tender, tender_id)
-    return {"status": "indexing started", "tender_id": tender_id}
-
-@router.put("/{tender_id}/ai-summary", response_model=schemas.SummaryResponse)
-async def update_ai_summary(
-    tender_id: str,
-    content_update: schemas.AIContentUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Update the AI-generated summary for a tender.
-    Inserts or updates a record in the SummaryTender table.
-    """
-    return services.update_ai_summary(db=db, tender_id=tender_id, content=content_update.content)
-
-@router.get("/summaries/{tender_id}", response_model=schemas.SummaryResponse)
-async def get_ai_summary(
-    tender_id: str,
+@router.get("/summary/{tender_id}", response_model=schemas.TenderSummary)
+def get_tender_summary(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve the summary for"),
     db: Session = Depends(get_db)
 ):
     """
-    Get the AI-generated summary for a tender.
+    Get the summary for a specific tender.
+    
+    This endpoint retrieves the summary of a tender from the database.
+    The tender is identified by either its full URI or its hash identifier.
+    
+    - **tender_id**: A string representing either the full URI of the tender or its hash identifier
+    
+    Returns:
+        TenderSummary: The tender summary
     """
-    summary = db.query(models.SummaryTender).filter(models.SummaryTender.tender_id == tender_id).first()
-    if not summary:
-        raise HTTPException(status_code=404, detail=f"Summary for tender {tender_id} not found")
-    return schemas.SummaryResponse.model_validate(summary)
-
-@router.get("/types", response_model=schemas.TenderTypesResponse)
-async def get_tender_types():
-    """
-    Get a list of available tender types.
-    """
-    types = services.get_tender_types()
-    return {"types": types}
+    try:
+        summary = services.get_tender_summary(tender_id, db)
+        return summary
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tender summary not found: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tender summary: {str(e)}"
+        )

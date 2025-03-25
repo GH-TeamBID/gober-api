@@ -1,14 +1,33 @@
 from app.core.database import Base, engine, get_neptune_client, get_meilisearch_client
 from app.modules.auth.models import User, UserRole
 from app.modules.auth.services import get_password_hash
-from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
-from app.core.config import settings
 import secrets
 import logging
+import subprocess
+import sys
+import os
+from app.core.config import settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Use Alembic to run migrations
+def run_migrations():
+    try:
+        logger.info("Running database migrations with Alembic")
+        # Get the absolute path of the project root
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+        
+        # Run Alembic migrations
+        subprocess.check_call(
+            ["alembic", "upgrade", "head"], 
+            cwd=project_root
+        )
+        logger.info("Database migrations completed successfully")
+    except Exception as e:
+        logger.error(f"Error running migrations: {str(e)}")
+        raise
 
 # Create all SQL tables
 def create_tables():
@@ -57,25 +76,59 @@ def init_meilisearch():
         logger.warning("Continuing without MeiliSearch initialization")
 
 # Add initial admin user
-def create_initial_user():
+def create_initial_user(
+    email=None, 
+    password=None, 
+    force_create=False
+):
+    """
+    Create initial admin user if one does not already exist.
+    
+    Args:
+        email (str, optional): Admin email. If None, uses ADMIN_EMAIL from settings or defaults to "admin@example.com"
+        password (str, optional): Admin password. If None, uses ADMIN_PASSWORD from settings or defaults to "admin123"
+        force_create (bool): If True, create a new admin even if one already exists
+        
+    Returns:
+        bool: True if user was created, False if user already existed
+    """
+    # Use parameters, then settings, then defaults
+    admin_email = email or getattr(settings, "ADMIN_EMAIL", "admin@example.com")
+    admin_password = password or getattr(settings, "ADMIN_PASSWORD", "admin123")
+    
+    # Get the string value of the enum - this is what's stored in the database
+    admin_role_value = UserRole.ACCOUNT_MANAGER.value
+    logger.info(f"Using admin role value: {admin_role_value} (type: {type(admin_role_value)})")
+    
     db = SessionLocal()
     try:
-        # Check if admin user already exists
-        user = db.query(User).filter(User.email == "admin@example.com").first()
-        if not user:
-            hashed_password = get_password_hash("admin123")
-            new_user = User(
-                email="admin@example.com",
-                password_hash=hashed_password,
-                role=UserRole.ACCOUNT_MANAGER
-            )
-            db.add(new_user)
-            db.commit()
-            logger.info("Initial admin user created")
-        else:
-            logger.info("Admin user already exists")
+        logger.info("Checking if admin user exists")
+        
+        # Use the string value directly for comparison
+        user = db.query(User).filter(User.role == admin_role_value).first()
+        
+        logger.info(f"Query completed, user found: {user is not None}")
+        
+        if user and not force_create:
+            logger.info(f"Admin user {user.email} already exists")
+            return False
+        
+        if user and force_create:
+            logger.info(f"Force creating new admin user {admin_email}")
+        
+        # Create new admin user with role value
+        hashed_password = get_password_hash(admin_password)
+        new_user = User(
+            email=admin_email,
+            password_hash=hashed_password,
+            role=admin_role_value  # Use the string value explicitly
+        )
+        db.add(new_user)
+        db.commit()
+        logger.info(f"Admin user {admin_email} created successfully")
+        return True
     except Exception as e:
-        logger.error(f"Error creating initial user: {str(e)}")
+        logger.error(f"Error creating admin user: {str(e)}")
         db.rollback()
         raise
     finally:
@@ -87,7 +140,10 @@ def generate_secret_key():
 
 def init_all():
     """Initialize all database components"""
-    create_tables()
+    # Use Alembic for database migrations instead of directly creating tables
+    run_migrations()
+    
+    # Create initial admin user
     create_initial_user()
     
     # These may fail in development if services aren't available
@@ -108,8 +164,39 @@ if __name__ == "__main__":
     # Configure logging for script execution
     logging.basicConfig(level=logging.INFO)
     
-    # Initialize all components
-    init_all()
+    # Parse command line arguments for admin creation
+    import argparse
+    parser = argparse.ArgumentParser(description='Initialize database and create admin user')
+    parser.add_argument('--email', help='Admin user email')
+    parser.add_argument('--password', help='Admin user password')
+    parser.add_argument('--force', action='store_true', help='Force creation even if admin exists')
+    parser.add_argument('--skip-migrations', action='store_true', help='Skip running migrations')
+    parser.add_argument('--admin-only', action='store_true', help='Only create admin user')
+    
+    args = parser.parse_args()
+    
+    if args.admin_only:
+        # Only create admin user
+        create_initial_user(args.email, args.password, args.force)
+    else:
+        # Initialize all components
+        if args.skip_migrations:
+            # Skip migrations and only initialize other components
+            try:
+                create_initial_user(args.email, args.password, args.force)
+                try:
+                    init_neptune()
+                except Exception as e:
+                    logger.warning(f"Neptune initialization skipped: {str(e)}")
+                try:
+                    init_meilisearch()
+                except Exception as e:
+                    logger.warning(f"MeiliSearch initialization skipped: {str(e)}")
+            except Exception as e:
+                logger.error(f"Initialization error: {str(e)}")
+        else:
+            # Run full initialization
+            init_all()
     
     # Generate and print a secure secret key
     print("\nYou can use this secure secret key in your .env file:")

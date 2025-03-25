@@ -234,75 +234,153 @@ def graph_to_procurement_object(graph, uri):
     
     return procurement_object
 
-# Create our Neptune graph wrapper
-neptune = NeptuneGraphWrapper(endpoint)
+# # Create our Neptune graph wrapper
+# neptune = NeptuneGraphWrapper(endpoint)
 
-# Test URI
-specific_object_uri = "http://example.com/eprocurement/procurementProject/project-2025-000236356"
+# # Test URI
+# specific_object_uri = "http://example.com/eprocurement/procurementProject/project-2025-000236356"
 
-# Test the DESCRIBE query functionality
-print("\nNeptune RDF Graph DESCRIBE Test")
-print("==============================\n")
+# # Test the DESCRIBE query functionality
+# print("\nNeptune RDF Graph DESCRIBE Test")
+# print("==============================\n")
 
-# Test 1: Get raw RDF data
-print("1. Raw RDF data (Turtle format):")
-try:
-    describe_rdf = neptune.describe_full(specific_object_uri, format="turtle")
-    # Print first 500 chars to avoid overwhelming output
-    print(describe_rdf[:500] + "..." if len(describe_rdf) > 500 else describe_rdf)
-    print(f"\nTotal length: {len(describe_rdf)} characters")
-except Exception as e:
-    print(f"Error with DESCRIBE query: {e}")
+# # Test 1: Get raw RDF data
+# print("1. Raw RDF data (Turtle format):")
+# try:
+#     describe_rdf = neptune.describe_full(specific_object_uri, format="turtle")
+#     # Print first 500 chars to avoid overwhelming output
+#     print(describe_rdf[:500] + "..." if len(describe_rdf) > 500 else describe_rdf)
+#     print(f"\nTotal length: {len(describe_rdf)} characters")
+# except Exception as e:
+#     print(f"Error with DESCRIBE query: {e}")
 
-# Test 2: Get as RDFLib Graph
-print("\n2. Parsed into RDFLib Graph:")
-try:
-    g = neptune.describe_full(specific_object_uri, format="turtle", as_graph=True)
-    print(f"Successfully parsed into Graph with {len(g)} triples")
+# # Test 2: Get as RDFLib Graph
+# print("\n2. Parsed into RDFLib Graph:")
+# try:
+#     g = neptune.describe_full(specific_object_uri, format="turtle", as_graph=True)
+#     print(f"Successfully parsed into Graph with {len(g)} triples")
     
-    # Print all triples in the graph
-    print("\nTriples in the graph:")
-    for i, (s, p, o) in enumerate(g):
-        print(f"{i+1}. {s} {p} {o}")
+#     # Print all triples in the graph
+#     print("\nTriples in the graph:")
+#     for i, (s, p, o) in enumerate(g):
+#         print(f"{i+1}. {s} {p} {o}")
     
-    # Demonstrate some Graph operations
-    print("\nGraph operations:")
-    print(f"Predicates: {len(list(g.predicates()))} unique predicates")
-    print(f"Objects: {len(list(g.objects()))} unique objects")
+#     # Demonstrate some Graph operations
+#     print("\nGraph operations:")
+#     print(f"Predicates: {len(list(g.predicates()))} unique predicates")
+#     print(f"Objects: {len(list(g.objects()))} unique objects")
     
-    # Find a specific predicate (example)
-    print("\nLooking for specific predicates:")
-    for obj in g.objects(URIRef(specific_object_uri), RDF_TYPE):
-        print(f"Resource is of type: {obj}")
+#     # Find a specific predicate (example)
+#     print("\nLooking for specific predicates:")
+#     for obj in g.objects(URIRef(specific_object_uri), RDF_TYPE):
+#         print(f"Resource is of type: {obj}")
     
-except Exception as e:
-    print(f"Error parsing into Graph: {e}")
+# except Exception as e:
+#     print(f"Error parsing into Graph: {e}")
 
-# Test 3: Convert to Pydantic model
-print("\n3. Converted to Pydantic ProcurementObject model:")
-try:
-    # Get the graph
-    g = neptune.describe_full(specific_object_uri, format="turtle", as_graph=True)
+# # Test 3: Convert to Pydantic model
+# print("\n3. Converted to Pydantic ProcurementObject model:")
+# try:
+#     # Get the graph
+#     g = neptune.describe_full(specific_object_uri, format="turtle", as_graph=True)
     
-    # Convert to ProcurementObject
-    procurement_object = graph_to_procurement_object(g, specific_object_uri)
+#     # Convert to ProcurementObject
+#     procurement_object = graph_to_procurement_object(g, specific_object_uri)
     
-    # Print the model as JSON
-    print(procurement_object.model_dump_json(indent=2))
+#     # Print the model as JSON
+#     print(procurement_object.model_dump_json(indent=2))
     
-    # Demonstrate accessing model properties
-    print("\nAccessing model properties:")
-    print(f"Title: {procurement_object.title}")
-    print(f"Description: {procurement_object.description[:100]}..." if procurement_object.description else "No description")
-    print(f"Buyer: {procurement_object.buyer.uri if procurement_object.buyer else 'None'}")
+#     # Demonstrate accessing model properties
+#     print("\nAccessing model properties:")
+#     print(f"Title: {procurement_object.title}")
+#     print(f"Description: {procurement_object.description[:100]}..." if procurement_object.description else "No description")
+#     print(f"Buyer: {procurement_object.buyer.uri if procurement_object.buyer else 'None'}")
     
-except Exception as e:
-    print(f"Error converting to Pydantic model: {e}")
+# except Exception as e:
+#     print(f"Error converting to Pydantic model: {e}")
 
-# Test 4: Using the convenience method
-print("\n4. Using the convenience method:")
-try:
-    procurement_object = neptune.get_procurement_object(specific_object_uri)
-    print(f"Successfully retrieved ProcurementObject with title: {procurement_object.title}")
-except Exception as e:
-    print(f"Error using convenience method: {e}")
+# # Test 4: Using the convenience method
+# print("\n4. Using the convenience method:")
+# try:
+#     procurement_object = neptune.get_procurement_object(specific_object_uri)
+#     print(f"Successfully retrieved ProcurementObject with title: {procurement_object.title}")
+# except Exception as e:
+#     print(f"Error using convenience method: {e}")
+
+if __name__ == "__main__":
+
+    query = """
+    PREFIX dcterms: <http://purl.org/dc/terms/>
+    PREFIX ns1: <http://data.europa.eu/a4g/ontology#>
+    PREFIX ns2: <http://www.w3.org/ns/locn#>
+    PREFIX ns3: <http://publications.europa.eu/ontology/authority/>
+    PREFIX ns4: <http://www.w3.org/ns/adms#>
+    PREFIX ns5: <http://data.europa.eu/m8g/>
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+    SELECT ?procedure ?id ?title ?description ?submissionDate (COUNT(DISTINCT ?lot) AS ?lotCount)
+        ?orgName ?baseBudgetAmount ?baseBudgetCurrency ?locationName ?contractType 
+        (GROUP_CONCAT(DISTINCT ?classification; separator=", ") AS ?classifications)
+    WHERE {
+    ?procedure a ns1:Procedure .
+    
+    # Id del expediente (identifier)
+    OPTIONAL { 
+        ?procedure ns4:identifier ?identifier .
+        ?identifier skos:notation ?id .
+    }
+    
+    # Título y descripción
+    OPTIONAL { ?procedure dcterms:title ?title . }
+    OPTIONAL { ?procedure dcterms:description ?description . }
+    
+    # Fecha de sumisión: desde isSubjectToProcedureSpecificTerm con SubmissionTerm
+    OPTIONAL { 
+        ?procedure ns1:isSubjectToProcedureSpecificTerm ?submissionTerm .
+        ?submissionTerm a ns1:SubmissionTerm ;
+                        ns1:hasReceiptDeadline ?submissionDate .
+    }
+    
+    # Número de lotes
+    OPTIONAL { 
+        ?procedure ns1:hasProcurementScopeDividedIntoLot ?lot .
+    }
+    
+    # Nombre de la organización: a través de involvesBuyer y PublicOrganisation
+    OPTIONAL { 
+        ?procedure ns1:involvesBuyer ?buyer .
+        ?buyer a ns5:PublicOrganisation ;
+            ns1:hasLegalName ?orgName .
+    }
+    
+    # Presupuesto base: mediante hasEstimatedValue, filtrando el IRI que termina en "estimated-overall-contract-amount"
+    OPTIONAL { 
+        ?procedure ns1:hasEstimatedValue ?monetaryValue .
+        FILTER(STRENDS(STR(?monetaryValue), "estimated-overall-contract-amount"))
+        ?monetaryValue ns1:hasAmountValue ?baseBudgetAmount ;
+                    ns3:currency ?baseBudgetCurrency .
+    }
+    
+    # Ubicación y tipo de contrato: desde foreseesContractSpecificTerm y ContractTerm
+    OPTIONAL { 
+        ?procedure ns1:foreseesContractSpecificTerm ?contractTerm .
+        ?contractTerm ns1:definesSpecificPlaceOfPerformance ?location ;
+                    ns1:hasContractNatureType ?contractType .
+        ?location a dcterms:Location ;
+                ns2:geographicName ?locationName .
+    }
+    
+    # Categorías/CPVs: desde hasPurpose y hasMainClassification (puede haber varias)
+    OPTIONAL { 
+        ?procedure ns1:hasPurpose ?purpose .
+        ?purpose ns1:hasMainClassification ?classification .
+    }
+    }
+    GROUP BY ?procedure ?id ?title ?description ?submissionDate ?orgName ?baseBudgetAmount ?baseBudgetCurrency ?locationName ?contractType
+    ORDER BY ?procedure
+    """
+    
+    results = query_neptune_direct(query, accept_format="application/sparql-results+json")
+    print(results)

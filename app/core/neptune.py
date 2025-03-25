@@ -5,8 +5,6 @@ import logging
 import urllib.parse
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from gremlin_python.driver import client as gremlin_client
-from gremlin_python.driver.protocol import GremlinServerError
 from typing import Dict, Any, Optional, Union
 from app.core.config import settings
 
@@ -38,50 +36,6 @@ class NeptuneClient:
         
         # Base URLs
         self.http_url = f"https://{endpoint}:{port}"
-        self.ws_url = f"wss://{endpoint}:{port}/gremlin"
-        
-    def get_gremlin_client(self) -> gremlin_client.Client:
-        """
-        Get a Gremlin client for Neptune with SigV4 authentication.
-        
-        Returns:
-            gremlin_client.Client: Authenticated Gremlin client
-        """
-        try:
-            # Create a Gremlin client with SigV4 authentication
-            auth = {
-                'mode': 'sigv4',
-                'region': self.region
-            }
-            
-            return gremlin_client.Client(
-                self.ws_url, 
-                'g',
-                authentication=auth
-            )
-        except Exception as e:
-            logger.error(f"Error creating Gremlin client: {str(e)}")
-            raise
-    
-    def execute_gremlin_query(self, query: str) -> Dict:
-        """
-        Execute a Gremlin query against Neptune.
-        
-        Args:
-            query (str): Gremlin query to execute
-            
-        Returns:
-            Dict: Query results
-        """
-        client = self.get_gremlin_client()
-        try:
-            result = client.submit(query).all().result()
-            return result
-        except GremlinServerError as e:
-            logger.error(f"Gremlin query error: {str(e)}")
-            raise
-        finally:
-            client.close()
     
     def _create_signed_request(self, method: str, endpoint_path: str, data: Optional[Dict] = None) -> requests.Request:
         """
@@ -130,20 +84,45 @@ class NeptuneClient:
         # Create a signed request
         prepared_request = self._create_signed_request('POST', sparql_path)
         
-        # Send the signed request
-        response = requests.post(
-            f"{self.http_url}/{sparql_path}",
-            data=query,
-            headers={
-                **dict(prepared_request.headers),
-                'Content-Type': 'application/sparql-query'
-            },
-            timeout=30,
-            verify=False  # Disable SSL certificate verification
-        )
+        # Determine the appropriate Accept header based on query type
+        # CONSTRUCT and DESCRIBE queries return RDF data, while SELECT and ASK return result sets
+        accept_header = "application/sparql-results+json"  # Default for SELECT/ASK
+        if "CONSTRUCT" in query.upper() or "DESCRIBE" in query.upper():
+            accept_header = "application/ld+json"  # For CONSTRUCT/DESCRIBE
         
-        # Check for errors
-        response.raise_for_status()
-        
-        # Parse the response
-        return response.json() 
+        try:
+            # Send the signed request
+            response = requests.post(
+                f"{self.http_url}/{sparql_path}",
+                data=query,
+                headers={
+                    **dict(prepared_request.headers),
+                    'Content-Type': 'application/sparql-query',
+                    'Accept': accept_header  # Request JSON response
+                },
+                timeout=30,
+                verify=False  # Disable SSL certificate verification
+            )
+            
+            if response.status_code != 200:
+                logger.warning(f"NEPTUNE DIAGNOSTIC: Error response: {response.text[:200]}")
+                
+            response.raise_for_status()
+            
+            # Only try to parse JSON if there's content
+            if response.text.strip():
+                try:
+                    return response.json()
+                except json.JSONDecodeError:
+                    logger.warning(f"Received non-JSON response despite requesting JSON format. Content-Type: {response.headers.get('Content-Type')}")
+                    # Return the raw text and headers so services.py can handle it
+                    return {
+                        "raw_text": response.text,
+                        "headers": dict(response.headers),
+                        "status_code": response.status_code
+                    }
+            else:
+                logger.warning("Empty response received from Neptune")
+                return {}
+        except Exception as e:
+            raise 

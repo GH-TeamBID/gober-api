@@ -11,6 +11,7 @@ import traceback
 
 from app.core.config import settings
 from app.core.init_search import init_meilisearch
+from app.core.init_db import create_initial_user
 from app.modules.auth.routes import router as auth_router
 from app.modules.clients.routes import router as clients_router
 from app.modules.tenders.routes import router as tenders_router
@@ -37,6 +38,16 @@ app = FastAPI(
 async def startup_event():
     """Initialize services when the application starts"""
     logger.info("Application startup: Initializing services...")
+    
+    # Check if admin user exists and create if needed
+    try:
+        admin_created = create_initial_user()
+        if admin_created:
+            logger.info("Admin user created during startup")
+        else:
+            logger.info("Admin user already exists")
+    except Exception as e:
+        logger.error(f"Error checking/creating admin user: {str(e)}")
     
     # Initialize Meilisearch
     try:

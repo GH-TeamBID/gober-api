@@ -4,25 +4,46 @@ from app.core.config import settings
 import logging
 from meilisearch import Client
 from app.core.neptune import NeptuneClient
+from contextlib import asynccontextmanager
+import urllib.parse
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Create connection string for Azure SQL using settings
-SQLALCHEMY_DATABASE_URL = f"mssql+pytds://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_SERVER}/{settings.DB_NAME}"
+# Create connection string for Azure SQL using pyodbc instead of pytds
+# URL encode the password to handle special characters
+encoded_password = urllib.parse.quote_plus(settings.DB_PASSWORD)
+SQLALCHEMY_DATABASE_URL = f"mssql+pyodbc://{settings.DB_USER}:{encoded_password}@{settings.DB_SERVER}/{settings.DB_NAME}?driver=ODBC+Driver+18+for+SQL+Server"
 
-# Create SQLAlchemy engine and session with encryption enabled
+# Log connection info (without sensitive data)
+logger.info(f"Connecting to SQL Server: {settings.DB_SERVER}/{settings.DB_NAME} with user {settings.DB_USER}")
+
+# Create SQLAlchemy engine using pyodbc
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, 
     pool_pre_ping=True,
     connect_args={
-        "encrypt": True,  # Enable encryption
-        "check_hostname": True,  # Verify hostname in certificate
-        "trust_server_certificate": False  # Verify server certificate
+        "TrustServerCertificate": "yes",
+        "encrypt": "yes",
+        # Use only ODBC-compatible connection parameters
+        "fast_executemany": True,
     }
 )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Async context manager for database sessions
+@asynccontextmanager
+async def get_async_db():
+    """
+    Async context manager for getting a database session
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # MeiliSearch connection
 def get_meilisearch_client():
@@ -55,7 +76,7 @@ def get_neptune_client() -> NeptuneClient:
         logger.error(f"Error connecting to Neptune: {str(e)}")
         raise
 
-# Database session dependency
+# Keep the original function for FastAPI dependencies
 def get_db():
     """
     Dependency for getting a database session

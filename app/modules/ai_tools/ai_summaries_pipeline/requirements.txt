@@ -1,3 +1,2 @@
-# May need to install more, but you'll figure it out
 google-genai
 aiohttp

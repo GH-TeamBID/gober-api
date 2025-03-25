@@ -6,5 +6,7 @@ __pycache__/
 test.db
 tests/test_real_db_connection.py
 tests/run_db_tests.py
+tests/tenders_data.json
 *.log
 tests/venv_tests/*
+data/

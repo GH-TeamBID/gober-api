@@ -1,12 +1,11 @@
 import os
 import logging
-import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
 
-from markdown_chunking_service import MarkdownChunkingService
-from chunk_reference_utility import ChunkReferenceUtility
+from app.modules.ai_tools.ai_summaries_pipeline.markdown_chunking_service import MarkdownChunkingService
+from app.modules.ai_tools.ai_summaries_pipeline.chunk_reference_utility import ChunkReferenceUtility
 
 class AIDocumentsProcessingWorkflow:
     """
@@ -272,3 +271,151 @@ class AIDocumentsProcessingWorkflow:
             'regenerated': regenerate or not tender.get('ai_summary') or not ai_doc_path,
             'processing_time': processing_time
         }
+
+    async def process_documents_directly(
+        self,
+        documents: List[Dict[str, Any]],  # List of ProcurementDocument objects
+        output_id: str,
+        regenerate: bool = False,
+        questions: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Process procurement documents directly to generate an AI summary.
+        
+        Args:
+            documents: List of procurement documents (with document_id, title, url, and document_type)
+            output_id: Identifier for the output files
+            regenerate: Whether to regenerate existing summaries
+            questions: Custom questions to use instead of defaults
+            
+        Returns:
+            Dict with processing results including paths to generated files
+        """
+        start_time = datetime.now()
+        self.logger.info(f"Processing {len(documents)} documents directly with output_id: {output_id}")
+        
+        # Create necessary directories
+        output_dir = f"data/processed/{output_id}"
+        chunks_dir = f"data/chunks/{output_id}"
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(chunks_dir, exist_ok=True)
+        
+        # Step 1: Download documents
+        self.logger.info("Step 1: Downloading documents")
+        # Convert HttpUrl objects to strings
+        document_urls = {doc["document_id"]: str(doc["url"]) for doc in documents}
+        pdf_paths = await self.document_retrieval_service.retrieve_documents(document_urls)
+        
+        if not pdf_paths:
+            self.logger.error("Failed to download any documents")
+            raise ValueError("Failed to download any documents")
+            
+        self.logger.info(f"Downloaded {len(pdf_paths)} documents")
+        
+        # Step 2: Convert documents to markdown
+        self.logger.info("Step 2: Converting documents to markdown")
+        markdown_paths = await self.document_conversion_service.convert_documents(pdf_paths)
+        
+        if not markdown_paths:
+            self.logger.error("Failed to convert any documents to markdown")
+            raise ValueError("Failed to convert any documents to markdown")
+            
+        self.logger.info(f"Converted {len(markdown_paths)} documents to markdown")
+        
+        # Step 3: Chunk documents
+        self.logger.info("Step 3: Chunking documents")
+        document_chunks = {}
+        
+        for doc_id, markdown_path in markdown_paths.items():
+            pdf_path = pdf_paths.get(doc_id, "")
+            document_chunks[doc_id] = self.markdown_chunking_service.chunk_markdown_file(markdown_path, pdf_path)
+            
+        # Extract flat chunks from all documents
+        all_flat_chunks = []
+        for doc_id, root_chunk in document_chunks.items():
+            if root_chunk:  # Check if chunking was successful
+                flat_chunks = self.markdown_chunking_service.extract_flat_chunks(root_chunk)
+                all_flat_chunks.extend(flat_chunks)
+        
+        if not all_flat_chunks:
+            self.logger.error("Failed to extract any chunks from documents")
+            raise ValueError("Failed to extract any chunks from documents")
+        
+        # Save combined chunks
+        combined_chunks_path = f"{chunks_dir}/combined_chunks.json"
+        with open(combined_chunks_path, 'w', encoding='utf-8') as f:
+            json.dump(all_flat_chunks, f, ensure_ascii=False, indent=2)
+            
+        self.logger.info(f"Extracted and combined {len(all_flat_chunks)} chunks from all documents")
+        
+        # Step 4: Generate AI document
+        self.logger.info("Step 4: Generating AI document")
+        output_file = f"{output_dir}/ai_document.md"
+        
+        # Convert dict of paths to list for the AI generator
+        markdown_paths_list = list(markdown_paths.values())
+        
+        # Use provided questions or default questions
+        doc_questions = questions or [
+            """
+            1. ¿Cuál es el objeto de la licitación?
+            2. ¿Cuáles son los requisitos técnicos principales?
+            3. ¿Cuál es el presupuesto y la forma de pago?
+            """,
+            """
+            4. ¿Cuáles son los criterios de adjudicación?
+            5. ¿Cuáles son los plazos clave?
+            """
+        ]
+        
+        ai_doc_path = await self.ai_document_generator_service.generate_ai_documents_with_chunks(
+            markdown_paths=markdown_paths_list,
+            chunks_path=combined_chunks_path,
+            questions=doc_questions,
+            output_file=output_file,
+            max_retries=3
+        )
+        
+        if not ai_doc_path:
+            self.logger.error("Failed to generate AI document")
+            raise ValueError("Failed to generate AI document")
+            
+        self.logger.info(f"Generated AI document: {ai_doc_path}")
+        
+        # Step 5: Process references
+        self.logger.info("Step 5: Processing references")
+        processed_path = f"{output_dir}/processed_document.md"
+        
+        self.chunk_reference_utility.process_document_with_references(
+            ai_doc_path,
+            combined_chunks_path,
+            processed_path
+        )
+        
+        # Generate reference metadata
+        metadata_path = f"{output_dir}/reference_metadata.json"
+        reference_metadata = self.chunk_reference_utility.generate_reference_metadata(
+            ai_doc_path,
+            combined_chunks_path,
+            metadata_path
+        )
+        
+        reference_count = len(reference_metadata.get("references", []))
+        self.logger.info(f"Processed document with {reference_count} references")
+        
+        # Prepare result
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        result = {
+            "output_id": output_id,
+            "document_count": len(documents),
+            "ai_doc_path": ai_doc_path,
+            "processed_doc_path": processed_path,
+            "reference_metadata_path": metadata_path,
+            "chunks_path": combined_chunks_path,
+            "reference_count": reference_count,
+            "processing_time": processing_time
+        }
+        
+        self.logger.info(f"Document processing completed in {processing_time:.2f} seconds")
+        return result
