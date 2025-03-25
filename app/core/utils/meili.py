@@ -1,5 +1,5 @@
 import meilisearch
-from utils.helpers import Envs
+from app.core.utils.helpers import Envs
 
 class MeiliClient:
     # docs: https://www.meilisearch.com/docs/reference/api/documents

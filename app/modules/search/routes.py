@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from core.utils.meili import MeiliClient, MeiliHelpers
+from app.core.utils.meili import MeiliClient, MeiliHelpers
 
 router = APIRouter()
 

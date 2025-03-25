@@ -1,0 +1,127 @@
+---
+description: Apply these rules when creating the project
+globs:
+alwaysApply: true
+---
+## Project Overview
+
+*   **Type:** cursor_project_rules
+*   **Description:** I want to build a RESTful API for web application to develop a robust and scalable backend API using FastAPI to serve as a backbone for managing users, bids and search criteria. The API centralizes business logic, orchestrates communication between application modules, and manages long-running asynchronous tasks (such as interactions with language models to generate summaries or documents). It handles requests from different clients and ensures secure, high-performance endpoints that facilitate complex operations and maintain data integrity.
+*   **Primary Goal:** Develop a robust and scalable backend API that manages users, tenders, and custom search criteria while efficiently orchestrating long-running asynchronous tasks (e.g., AI-driven summaries and document generation via Gemini). Robust logging, monitoring, and error reporting are integrated to support a secure and high-performance system.
+
+## Project Structure
+
+### Framework-Specific Routing
+
+*   **Directory Rules:**
+
+    *   **FastAPI (latest)**: Utilize FastAPI’s APIRouter to modularize endpoints across different modules. The route logic is based on RESTful principles with clear path definitions in a centralized main entry point (e.g., `app/main.py`).
+    *   Example: Use `app/modules/auth/routes.py` for authentication endpoints and register them in `app/main.py`.
+    *   Example: Use `app/modules/tenders/routes.py` for tender management endpoints following RESTful conventions.
+
+### Core Directories
+
+*   **Versioned Structure:**
+
+    *   **app/core**: Contains centralized configuration (e.g., `config.py`), database connections (`database.py`), and initial setup scripts (`init_db.py`).
+    *   **app/modules**: Organized by feature (e.g., `auth`, `clients`, `tenders`, `ai_tools`) to separate business logic, models, schemas, and routes.
+    *   **app/main.py**: Acts as the entry point for the API, setting up the FastAPI application and integrating all routers.
+
+### Key Files
+
+*   **Stack-Versioned Patterns:**
+
+    *   **app/main.py**: Implements the FastAPI application instance and aggregates routers from various modules.
+    *   **app/core/config.py**: Manages centralized configuration settings (e.g., environment variables, database connection parameters).
+    *   **app/modules/auth/routes.py**: Defines authentication endpoints (signup, login, logout, password update) using FastAPI path operations.
+
+## Tech Stack Rules
+
+*   **Version Enforcement:**
+
+    *   **<python@3.x>**: Ensure adherence to PEP8 standards and use asynchronous programming where appropriate.
+    *   **fastapi@latest**: Utilize async endpoints, dependency injection, and auto-generated documentation (Swagger/OpenAPI).
+    *   **azure_sql_database**: Apply secure connectivity and optimized query practices.
+    *   **amazon_neptune**: Follow best practices in graph data modelling and secure connections.
+    *   **meilisearch_cloud**: Maintain up-to-date indexes and configure relevancy for optimal search performance.
+    *   **docker@latest**: Use minimal base images with multi-stage builds to keep container sizes small and efficient.
+    *   **azure_devops**: Implement CI/CD pipelines, automated testing, and clear deployment processes across development, staging, and production environments.
+    *   **jwt**: Securely handle token creation, storage, and validation with proper expiration and error management.
+    *   **gemini**: When interfacing with Gemini for AI tasks, implement robust error handling, retries, and monitor response times.
+
+## PRD Compliance
+
+*   **Non-Negotiable:**
+
+    *   "Gober API is designed as a robust and scalable backend RESTful API built using FastAPI. The core of this project is to manage users, bids and custom search criteria while orchestrating long-running asynchronous tasks (e.g., AI-driven summarizations and document generation via Gemini)." This enforces requirements such as modular architecture, secure JWT-based authentication, asynchronous task management, robust logging/monitoring, and proper environment segregation with CI/CD and containerization.
+
+## App Flow Integration
+
+*   **Stack-Aligned Flow:**
+
+    *   For example: "FastAPI Auth Flow → `app/modules/auth/routes.py` handles POST /api/auth/signup, POST /api/auth/login, and related endpoints using asynchronous functions for improved performance and security."
+    *   The user flow integrates registration, authentication, tender exploration, search criteria customization, and asynchronous task management seamlessly.
+
+## Best Practices
+
+*   **python**
+
+    *   Follow PEP8 coding standards and proper documentation.
+    *   Use virtual environments to manage dependencies.
+    *   Write unit tests and integrate continuous testing.
+
+*   **fastapi**
+
+    *   Leverage asynchronous endpoints and dependency injection for clean, testable code.
+    *   Utilize FastAPI’s built-in features for automatic documentation via Swagger/OpenAPI.
+    *   Implement robust error handling and input validation using Pydantic models.
+
+*   **azure_sql_database**
+
+    *   Use parameterized queries to avoid SQL injection.
+    *   Ensure secure and encrypted connections to the database.
+    *   Optimize queries and use connection pooling where possible.
+
+*   **amazon_neptune**
+
+    *   Design efficient graph data models and optimize query patterns.
+    *   Secure connections using best practices for cloud databases.
+    *   Monitor and tune performance based on workload demands.
+
+*   **meilisearch_cloud**
+
+    *   Keep indexes updated and regularly monitor indexing performance.
+    *   Fine-tune search relevancy settings to improve result precision.
+    *   Monitor query performance and adjust configuration as needed.
+
+*   **docker**
+
+    *   Use minimal, secure base images and multi-stage builds to reduce image size.
+    *   Ensure that containers are stateless and configurable via environment variables.
+    *   Follow best practices for container security and orchestration.
+
+*   **azure_devops**
+
+    *   Implement CI/CD pipelines with automated testing and deployments.
+    *   Use branching strategies and code reviews to maintain code quality.
+    *   Monitor pipeline efficiency and security during deployments.
+
+*   **jwt**
+
+    *   Securely store and manage secret keys.
+    *   Set appropriate token expiration times and use refresh tokens as needed.
+    *   Validate tokens rigorously in all protected endpoints.
+
+*   **gemini**
+
+    *   Implement retries and robust error handling for external API calls.
+    *   Monitor response times and log interactions for performance tracking.
+    *   Ensure secure and efficient integration when making multiple API calls.
+
+## Rules
+
+*   Derive folder/file patterns **directly** from tech stack documentation versions.
+*   For FastAPI-based projects, enforce the use of an `app/` directory with clearly separated submodules (e.g., `app/core`, `app/modules`).
+*   Maintain a clear separation between configuration, business logic, and routing to preserve modularity and scalability.
+*   Ensure that asynchronous endpoints and background tasks are implemented consistently across modules.
+*   Do not mix structural patterns from different frameworks (e.g., avoid Next.js pages pattern in FastAPI projects).

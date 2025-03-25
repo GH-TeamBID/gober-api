@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gober API</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .card {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .btn {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-right: 10px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Gober API</h1>
+    
+    <div class="card">
+        <h2>API Documentation</h2>
+        <p>
+            Gober API is a robust and scalable backend RESTful API built using FastAPI. 
+            The core of this project is to manage users, bids (tenders), and custom search criteria 
+            while orchestrating long-running asynchronous tasks such as generating summaries and 
+            documents using AI.
+        </p>
+        <p>
+            <a href="/docs" class="btn">Swagger UI</a>
+            <a href="/redoc" class="btn">ReDoc</a>
+        </p>
+    </div>
+    
+    <div class="card">
+        <h2>Features</h2>
+        <ul>
+            <li>User authentication and management</li>
+            <li>Tender listing, filtering, and detailed view</li>
+            <li>Search criteria management</li>
+            <li>AI-powered document and summary generation</li>
+            <li>Asynchronous task processing</li>
+        </ul>
+    </div>
+    
+    <footer>
+        &copy; 2024 Gober API - All rights reserved
+    </footer>
+</body>
+</html> 
