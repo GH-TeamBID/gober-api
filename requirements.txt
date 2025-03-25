@@ -8,6 +8,7 @@ greenlet==3.1.1
 h11==0.14.0
 idna==3.10
 pydantic==2.10.6
+pydantic-settings==2.8.1
 pydantic_core==2.27.2
 pyodbc==5.2.0
 python-tds==1.16.0
