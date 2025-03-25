@@ -7,6 +7,7 @@ from app.modules.auth.routes import router as auth_router
 from app.modules.clients.routes import router as clients_router
 from app.modules.tenders.routes import router as tenders_router
 from app.modules.ai_tools.routes import router as ai_router
+from app.modules.search.routes import router as search_router
 # from app.modules.external_integration.routes import router as external_router
 
 app = FastAPI(
@@ -31,6 +32,7 @@ app.include_router(auth_router, prefix=f"{api_prefix}/auth", tags=["Autenticaci√
 app.include_router(clients_router, prefix=f"{api_prefix}/clients", tags=["Clientes"])
 app.include_router(tenders_router, prefix=f"{api_prefix}/tenders", tags=["Licitaciones"])
 app.include_router(ai_router, prefix=f"{api_prefix}/ai-tools", tags=["IA Tools"])
+app.include_router(search_router, prefix=f"{api_prefix}/search", tags=["Search"])
 # app.include_router(external_router, prefix=f"{api_prefix}/external", tags=["Integraci√≥n Externa"])
 
 @app.get("/")
