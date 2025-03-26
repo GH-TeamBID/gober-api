@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from app.core.utils.meili import MeiliClient, MeiliHelpers
+from datetime import datetime
 
 router = APIRouter()
 
@@ -34,6 +35,11 @@ def tenders_create(request: dict):
     if isinstance(request['documents'], list) is False: ErrorResponse(400, "documents must be a list")
     try:
         documents = request['documents']
+        # Parsing
+        for document in documents:
+            if 'updated' in document and document['updated'] != '' and document['updated'] is not None:
+                xdate = datetime.strptime(document['updated'], '%Y-%m-%d %H:%M:%S')
+                document['updated'] = int(xdate.timestamp())
         tenders_search = MeiliClient('tenders')
         tenders_search.add_documents(documents)
         return {'message': "Tenders saved"}

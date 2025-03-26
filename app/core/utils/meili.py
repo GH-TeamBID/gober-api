@@ -1,13 +1,13 @@
 import meilisearch
-from app.core.utils.helpers import Envs
+#from app.core.utils.helpers import Envs
+from app.core.config import settings
 
 class MeiliClient:
     # docs: https://www.meilisearch.com/docs/reference/api/documents
     def __init__(self, index_name: str, host: str = "", api_key: str = ""):
-        if host == '': host = Envs.get('MEILI_HOST')
-        if api_key == '': api_key = Envs.get('MEILI_KEY') if Envs.get('MEILI_KEY') != '' else None
+        if host == '': host = settings.MEILISEARCH_HOST #Envs.get('MEILISEARCH_HOST')
+        if api_key == '': api_key = settings.MEILISEARCH_API_KEY if settings.MEILISEARCH_API_KEY != '' else None #api_key = Envs.get('MEILISEARCH_API_KEY') if Envs.get('MEILISEARCH_API_KEY') != '' else None
         self.client = meilisearch.Client(host, api_key)
-        #if index_name != '': 
         self.index_name = index_name
         self.index = self.check_index_exists()
 

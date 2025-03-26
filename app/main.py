@@ -50,8 +50,8 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error checking/creating admin user: {str(e)}")
     
-    # Initialize Meilisearch
-    """ try:
+    """ # Initialize Meilisearch
+    try:
         meilisearch_initialized = await init_meilisearch()
         if meilisearch_initialized:
             logger.info("Meilisearch successfully initialized")
