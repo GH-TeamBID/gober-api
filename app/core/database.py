@@ -51,7 +51,8 @@ def get_meilisearch_client():
     Returns a MeiliSearch client
     """
     try:
-        meilisearch_client = Client(settings.MEILISEARCH_HOST, settings.MEILISEARCH_API_KEY)
+        api_key = settings.MEILISEARCH_API_KEY if settings.MEILISEARCH_API_KEY != '' else None
+        meilisearch_client = Client(settings.MEILISEARCH_HOST, api_key)
         return meilisearch_client
     except Exception as e:
         logger.error(f"Error connecting to MeiliSearch: {str(e)}")

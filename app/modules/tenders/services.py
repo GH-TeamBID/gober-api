@@ -10,6 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, text, func, cast, String
 from app.modules.tenders.models import UserTender as UserTenderModel, TenderDocuments as TenderSummaryModel
 from sqlalchemy.orm import Session
+from app.core.database import engine
+from app.core.azure_blob import generate_sas_token
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1104,4 +1106,180 @@ def get_tender_summary(tender_id: str, db: Session):
             raise ValueError(f"Summary not found for tender with ID: {tender_id}")
     except Exception as e:
         logger.error(f"Error retrieving tender summary: {str(e)}")
+        raise
+
+async def get_tender_documents(tender_id: str) -> schemas.TenderDocuments:
+    """
+    Get the documents for a specific tender.
+    
+    This endpoint retrieves the documents for a specific tender from the RDF graph database.
+    The tender is identified by either its full URI or its hash identifier.
+    
+    Args:
+        tender_id: The URI or hash identifier of the tender to retrieve
+        
+    Returns:
+        TenderDocuments: The documents for the tender
+        
+    Raises:
+        ValueError: If the tender is not found
+    """
+    logger.info(f"Fetching tender documents for ID: {tender_id}")
+    
+    # Get Neptune client
+    neptune_client = get_neptune_client()
+    
+    # Determine if the provided ID is a complete URI or just a hash/identifier
+    if tender_id.startswith('http'):
+        tender_uri = tender_id
+    else:
+        # Construct the URI from the hash
+        tender_uri = f"http://gober.ai/spain/procedure/{tender_id}"
+
+    logger.info(f"Using tender URI: {tender_uri}")
+
+    query = f"""
+    PREFIX ns1: <http://data.europa.eu/a4g/ontology#>
+    PREFIX dct: <http://purl.org/dc/terms/>
+
+    SELECT ?procedure 
+        ?UUID_legal ?ID_legal ?fechaPublicacion_legal ?issued_legal ?descripcion_legal ?urlAcceso_legal
+        ?UUID_technical ?ID_technical ?fechaPublicacion_technical ?issued_technical ?descripcion_technical ?urlAcceso_technical
+    WHERE {{
+    VALUES ?procedure {{ <{tender_uri}> }}
+    
+    # DOCUMENTOS LEGALES
+    OPTIONAL {{
+        ?procedure ns1:isSubjectToProcedureSpecificTerm ?legalAccessTerm .
+        FILTER(CONTAINS(STR(?legalAccessTerm), "access-term/legal-document"))
+        ?legalAccessTerm a ns1:AccessTerm ;
+                        ns1:involvesProcurementDocument ?legalDocument .
+        OPTIONAL {{ ?legalDocument dct:title ?ID_legal . }}
+        OPTIONAL {{ ?legalDocument ns1:hasPublicationDate ?fechaPublicacion_legal . }}
+        OPTIONAL {{ ?legalDocument dct:issued ?issued_legal . }}
+        OPTIONAL {{ ?legalDocument dct:description ?descripcion_legal . }}
+        OPTIONAL {{ ?legalDocument ns1:hasAccessURL ?urlAcceso_legal . }}
+        BIND(STR(?legalDocument) AS ?UUID_legal)
+    }}
+    
+    # DOCUMENTOS TÉCNICOS
+    OPTIONAL {{
+        ?procedure ns1:isSubjectToProcedureSpecificTerm ?technicalAccessTerm .
+        FILTER(CONTAINS(STR(?technicalAccessTerm), "access-term/technical-document"))
+        ?technicalAccessTerm a ns1:AccessTerm ;
+                            ns1:involvesProcurementDocument ?technicalDocument .
+        OPTIONAL {{ ?technicalDocument dct:title ?ID_technical . }}
+        OPTIONAL {{ ?technicalDocument ns1:hasPublicationDate ?fechaPublicacion_technical . }}
+        OPTIONAL {{ ?technicalDocument dct:issued ?issued_technical . }}
+        OPTIONAL {{ ?technicalDocument dct:description ?descripcion_technical . }}
+        OPTIONAL {{ ?technicalDocument ns1:hasAccessURL ?urlAcceso_technical . }}
+        BIND(STR(?technicalDocument) AS ?UUID_technical)
+    }}
+    }}
+    """
+    
+    logger.info(f"Executing query: {query}")
+    
+    try:
+        # Execute the query
+        results = neptune_client.execute_sparql_query(query)
+                
+        if not results or 'results' not in results or 'bindings' not in results['results'] or len(results['results']['bindings']) == 0:
+            logger.warning(f"Tender not found: {tender_uri}")
+            raise ValueError(f"Tender with ID {tender_id} not found")
+        
+        # Parse the result into a TenderDocuments object
+        binding = results['results']['bindings'][0]
+        tender_documents = parse_sparql_binding_to_tender_documents(binding)
+        
+        return tender_documents
+    except Exception as e:
+        logger.error(f"Error retrieving tender documents: {str(e)}")
+        raise
+
+def parse_sparql_binding_to_tender_documents(binding: Dict[str, Any]) -> schemas.TenderDocuments:
+    """
+    Parse a single SPARQL query binding into a TenderDocuments object.
+    
+    Args:
+        binding: A dictionary containing the SPARQL binding for a tender
+        
+    Returns:
+        TenderDocuments: The parsed tender documents object
+    """
+    # Extract the tender URI
+    tender_uri = binding.get('procedure', {}).get('value', '')
+    
+    # Initialize documents list
+    documents = []
+    
+    # Parse legal document if present
+    if 'UUID_legal' in binding and binding['UUID_legal'].get('value'):
+        legal_doc = schemas.Document(
+            id=binding.get('ID_legal', {}).get('value', ''),
+            uuid=binding.get('UUID_legal', {}).get('value', ''),
+            description=binding.get('descripcion_legal', {}).get('value', ''),
+            url=binding.get('urlAcceso_legal', {}).get('value', ''),
+            doc_type='legal',
+            publication_date=None
+        )
+        
+        # Add publication date if available
+        if 'fechaPublicacion_legal' in binding and binding['fechaPublicacion_legal'].get('value'):
+            try:
+                date_str = binding['fechaPublicacion_legal']['value']
+                legal_doc.publication_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Error parsing legal document publication date: {e}")
+        
+        # Add to documents list
+        documents.append(legal_doc)
+    
+    # Parse technical document if present
+    if 'UUID_technical' in binding and binding['UUID_technical'].get('value'):
+        technical_doc = schemas.Document(
+            id=binding.get('ID_technical', {}).get('value', ''),
+            uuid=binding.get('UUID_technical', {}).get('value', ''),
+            description=binding.get('descripcion_technical', {}).get('value', ''),
+            url=binding.get('urlAcceso_technical', {}).get('value', ''),
+            doc_type='technical',
+            publication_date=None
+        )
+        
+        # Add publication date if available
+        if 'fechaPublicacion_technical' in binding and binding['fechaPublicacion_technical'].get('value'):
+            try:
+                date_str = binding['fechaPublicacion_technical']['value']
+                technical_doc.publication_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Error parsing technical document publication date: {e}")
+        
+        # Add to documents list
+        documents.append(technical_doc)
+    
+    # Create and return TenderDocuments
+    return schemas.TenderDocuments(
+        tender_uri=tender_uri,
+        documents=documents
+    )
+
+async def get_ai_documents(tender_id):
+    with Session(engine) as session:
+        tender_document = session.query(TenderSummaryModel).filter_by(tender_uri=tender_id).first()
+        if tender_document:
+            return {
+                "url_document": tender_document.url_document,
+                "summary": tender_document.summary
+            }
+        else: return None
+
+async def get_ai_document_sas_token(tender_id: str) -> str:
+    """
+    Get a SAS token for a specific tender document.
+    """
+    try:
+        blob_path = f"{tender_id}.md"
+        return generate_sas_token(blob_path)
+    except Exception as e:
+        logger.error(f"Error generating SAS token for tender {tender_id}: {str(e)}")
         raise

@@ -1,0 +1,203 @@
+import os
+import logging
+from datetime import datetime, timedelta
+from app.core.config import settings
+from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient, generate_blob_sas, BlobSasPermissions
+
+
+class AzureBlobStorageClient:
+    """Client for Azure Blob Storage operations."""
+
+    def __init__(self):
+        """Initialize Azure Blob Storage client."""
+        self.connection_string = settings.BLOB_CONNECTION_STRING
+        self.container_name = settings.BLOB_CONTAINER_NAME
+
+        if not self.connection_string or not self.container_name:
+            raise ValueError("Environment variables for connection string and container name must be set.")
+
+        self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
+        self.container_client = self.blob_service_client.get_container_client(self.container_name)
+
+        logging.info(f"Azure Blob Storage client initialized with container: {self.container_name}")
+
+    def upload_document(self, file_path, blob_path=None):
+        """
+        Upload a document to Azure Blob Storage.
+
+        Args:
+            file_path (str): Local path to the file to upload
+            blob_path (str, optional): Path in blob storage. If not provided, uses filename from file_path
+
+        Returns:
+            str: URL of the uploaded blob
+        """
+        try:
+            # If blob_path is not provided, use the filename from file_path
+            if not blob_path:
+                blob_path = os.path.basename(file_path)
+
+            # Get the blob client
+            blob_client = self.container_client.get_blob_client(blob_path)
+
+            # Upload the file
+            with open(file_path, "rb") as data:
+                blob_client.upload_blob(data, overwrite=True)
+
+            logging.info(f"File {file_path} uploaded to {blob_path}")
+
+            return blob_path #blob_client.url
+
+        except Exception as e:
+            error_msg = f"Failed to upload document to blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def upload_bytes(self, data, blob_path):
+        """
+        Upload bytes data to Azure Blob Storage.
+
+        Args:
+            data (bytes): Bytes data to upload
+            blob_path (str): Path in blob storage
+
+        Returns:
+            str: URL of the uploaded blob
+        """
+        try:
+            # Get the blob client
+            blob_client = self.container_client.get_blob_client(blob_path)
+
+            # Upload the bytes data
+            blob_client.upload_blob(data, overwrite=True)
+
+            logging.info(f"Bytes data uploaded to {blob_path}")
+
+            return blob_client.url
+
+        except Exception as e:
+            error_msg = f"Failed to upload bytes to blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def download_document(self, blob_path, file_path=None):
+        """
+        Download a document from Azure Blob Storage.
+
+        Args:
+            blob_path (str): Path in blob storage
+            file_path (str, optional): Local path to save the file. If not provided, returns the content as bytes
+
+        Returns:
+            bytes or str: Content as bytes if file_path is not provided, otherwise the path to the saved file
+        """
+        try:
+            # Get the blob client
+            blob_client = self.container_client.get_blob_client(blob_path)
+
+            # Download the blob
+            downloaded_blob = blob_client.download_blob()
+
+            if file_path:
+                # Save to file if file_path is provided
+                with open(file_path, "wb") as file:
+                    file.write(downloaded_blob.readall())
+                logging.info(f"Blob {blob_path} downloaded to {file_path}")
+                return file_path
+            else:
+                # Return content as bytes if file_path is not provided
+                content = downloaded_blob.readall()
+                logging.info(f"Blob {blob_path} downloaded as bytes")
+                return content
+
+        except Exception as e:
+            error_msg = f"Failed to download document from blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def delete_document(self, blob_path):
+        """
+        Delete a document from Azure Blob Storage.
+
+        Args:
+            blob_path (str): Path in blob storage
+
+        Returns:
+            bool: True if deletion was successful
+        """
+        try:
+            # Get the blob client
+            blob_client = self.container_client.get_blob_client(blob_path)
+
+            # Delete the blob
+            blob_client.delete_blob()
+
+            logging.info(f"Blob {blob_path} deleted")
+
+            return True
+
+        except Exception as e:
+            error_msg = f"Failed to delete document from blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def list_documents(self, prefix=None):
+        """
+        List documents in the container.
+
+        Args:
+            prefix (str, optional): Filter results to items that begin with this prefix
+
+        Returns:
+            list: List of blob names
+        """
+        try:
+            # List blobs in the container
+            blobs = self.container_client.list_blobs(name_starts_with=prefix)
+
+            # Extract blob names
+            blob_names = [blob.name for blob in blobs]
+
+            return blob_names
+
+        except Exception as e:
+            error_msg = f"Failed to list documents in container. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def generate_sas_url(self, blob_path, minutes=10, read_only=True):
+        """
+        Generate a SAS URL for a blob.
+
+        Args:
+            blob_path (str): Path in blob storage
+            minutes (int, optional): Number of minutes the SAS URL will be valid
+            read_only (bool, optional): If True, SAS will be read-only
+
+        Returns:
+            str: SAS URL for the blob
+        """
+        try:
+            # Generate the SAS token
+            permissions = BlobSasPermissions(read=True, write=not read_only)
+
+            sas_token = generate_blob_sas(
+                account_name=self.blob_service_client.account_name,
+                container_name=self.container_name,
+                blob_name=blob_path,
+                account_key=self.blob_service_client.credential.account_key,
+                permission=permissions,
+                expiry=datetime.now() + timedelta(minutes=minutes)
+            )
+
+            # Generate the full URL with SAS token
+            blob_url_with_sas = f"https://{self.blob_service_client.account_name}.blob.core.windows.net/{self.container_name}/{blob_path}?{sas_token}"
+
+            logging.info(f"SAS URL generated for blob: {blob_path}")
+
+            return blob_url_with_sas
+
+        except Exception as e:
+            error_msg = f"Failed to generate SAS URL for blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)

@@ -28,3 +28,4 @@ class TenderDocuments(Base):
     url_document = Column(String(1024), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    status = Column(String(255), nullable=True)
