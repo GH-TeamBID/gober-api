@@ -1,0 +1,16 @@
+data/
+.git/
+.gitignore
+.env
+.env.local
+.env.development.local
+.env.test.local
+tests/
+scripts/
+migrations/
+alembic.ini
+pytest.ini
+test.db
+.cursor/
+.pytest_cache/
+api-venv/
