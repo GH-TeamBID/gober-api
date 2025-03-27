@@ -61,23 +61,6 @@ ENV PYTHONPATH=/app
 # Create AWS config directory
 RUN mkdir -p /root/.aws/
 
-# Create AWS config file
-RUN echo "[default]\n\
-region = eu-west-3\n\
-[profile 715841348065]\n\
-region = eu-north-1\n\
-[profile NeptuneLoad]\n\
-role_arn = arn:aws:iam::715841348065:role/NeptuneLoadFromS3\n\
-source_profile = 715841348065\n\
-region = eu-north-1" > /root/.aws/config
-
-# Create AWS credentials file
-RUN echo "[default]\n\
-aws_access_key_id = AKIA2NK3YEHQZUOTJYI4\n\
-aws_secret_access_key = 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\n\
-[715841348065]\n\
-aws_access_key_id = AKIA2NK3YEHQZUOTJYI4\n\
-aws_secret_access_key = 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" > /root/.aws/credentials
 
 EXPOSE 8000
 
