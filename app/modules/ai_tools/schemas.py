@@ -15,6 +15,7 @@ class TenderSummaryRequest(BaseModel):
     output_id: Optional[str] = Field(None, description="Optional ID for the output, will be auto-generated if not provided")
     regenerate: bool = False
     questions: Optional[List[str]] = None
+    tender_hash: str
 
 class TenderSummaryResponse(BaseModel):
     """Response model for a tender summary task"""

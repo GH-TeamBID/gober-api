@@ -5,7 +5,11 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Optional, List, Any
 from fastapi import BackgroundTasks
-
+from app.core.utils.azure_blob_client import AzureBlobStorageClient
+from app.modules.tenders.models import TenderDocuments
+from app.modules.ai_tools.ai_summaries_pipeline.custom_questions import QUESTIONS
+from sqlalchemy.orm import Session
+from app.core.database import engine
 from app.core.config import settings
 from .schemas import ProcurementDocument
 
@@ -33,10 +37,11 @@ TASKS: Dict[str, Dict[str, Any]] = {}
 
 async def process_document_summary(
     documents: List[ProcurementDocument],
+    tender_hash: str,
     output_id: Optional[str] = None,
     regenerate: bool = False,
     questions: Optional[List[str]] = None,
-    background_tasks: Optional[BackgroundTasks] = None
+    background_tasks: Optional[BackgroundTasks] = None, 
 ) -> str:
     """
     Start processing a document summary in the background
@@ -80,6 +85,7 @@ async def process_document_summary(
     if background_tasks:
         background_tasks.add_task(
             _process_document_summary_task,
+            tender_hash,
             task_id,
             documents,
             output_id,
@@ -90,6 +96,7 @@ async def process_document_summary(
         # For testing or direct calls without background tasks
         asyncio.create_task(
             _process_document_summary_task(
+                tender_hash,
                 task_id,
                 documents,
                 output_id,
@@ -101,6 +108,7 @@ async def process_document_summary(
     return task_id
 
 async def _process_document_summary_task(
+    tender_hash: str,
     task_id: str, 
     documents: List[ProcurementDocument],
     output_id: str,
@@ -154,7 +162,8 @@ async def _process_document_summary_task(
         
         # Convert the Pydantic models to dictionaries for the workflow
         document_dicts = [doc.model_dump() for doc in documents]
-        
+        if questions is None:
+            questions = QUESTIONS
         # Process the documents directly using the workflow
         result = await workflow.process_documents_directly(
             documents=document_dicts,
@@ -162,6 +171,28 @@ async def _process_document_summary_task(
             regenerate=regenerate,
             questions=questions
         )
+        ai_doc_path = result.get('ai_doc_path')
+        if ai_doc_path is not None or ai_doc_path != '':
+            azureclient = AzureBlobStorageClient()
+            process_document_azure = azureclient.upload_document(ai_doc_path, blob_path=f"{tender_hash}.md")
+            content_file = ""
+            #with open(ai_doc_path, "r") as data: content_file = data
+            with open(ai_doc_path, "r", encoding="utf-8") as data: content_file = data.read()
+            summary = await ai_generator.generate_conversational_summary(document_content=content_file)
+            with Session(engine) as session:
+                tender_document = session.query(TenderDocuments).filter_by(tender_uri=tender_hash).first()
+                if tender_document:
+                    tender_document.url_document = process_document_azure
+                    tender_document.summary = summary
+                else:
+                    tender_doc = TenderDocuments(
+                        id=str(uuid.uuid4()),
+                        tender_uri=tender_hash,
+                        url_document=process_document_azure,
+                        summary=summary
+                    )
+                    session.add(tender_doc)
+                session.commit()
         
         # Update task with results
         _update_task_status(task_id, "completed", 100, "Processing complete", result=result)

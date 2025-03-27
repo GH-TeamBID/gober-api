@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     
     # Environment name
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
+    BLOB_CONTAINER_NAME: str = os.getenv("BLOB_CONTAINER_NAME")
+    BLOB_CONNECTION_STRING: str = os.getenv("BLOB_CONNECTION_STRING", "")
     
     model_config = ConfigDict(
         # This will look for environment-specific files first, then fall back to the default

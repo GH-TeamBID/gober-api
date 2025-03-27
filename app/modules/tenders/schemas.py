@@ -202,3 +202,17 @@ class SaveTenderRequest(BaseModel):
 class UnsaveTenderRequest(BaseModel):
     """Schema for the client request to unsave a tender"""
     tender_uri: str
+
+class Document(BaseModel):
+    """Schema for a tender document"""
+    id: str
+    uuid: str
+    description: Optional[str] = None
+    url: Optional[HttpUrl] = None
+    doc_type: str
+    publication_date: Optional[datetime] = None
+
+class TenderDocuments(BaseModel):
+    """Schema for tender documents"""
+    tender_uri: str
+    documents: List[Document]

@@ -13,6 +13,52 @@ router = APIRouter(tags=["tenders"])
 # Configure logging
 logger = logging.getLogger(__name__)
 
+@router.get("/ai_document_sas_token/{tender_id}", response_model=str)
+async def get_ai_document_sas_token(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
+):
+    """
+    Get a SAS token for a specific tender document.
+    """
+    return await services.get_ai_document_sas_token(tender_id)
+
+@router.get("/ai_documents/{tender_id}")
+async def get_ai_documents(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
+):
+    """  """
+    try:
+        ai_documents = await services.get_ai_documents(tender_id)
+        if ai_documents is not None: return ai_documents
+        else: 
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tender document not found"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tender documents: {str(e)}"
+        )
+
+@router.get("/documents/{tender_id}", response_model=schemas.TenderDocuments)
+async def get_tender_documents(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
+):
+    """
+    Get the documents for a specific tender.
+    
+    This endpoint retrieves the documents for a specific tender from the RDF graph database.
+    The tender is identified by either its full URI or its hash identifier.
+    """
+    try:
+        return await services.get_tender_documents(tender_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving tender documents: {str(e)}"
+        )
+
 @router.get("/", response_model=schemas.PaginatedTenderResponse)
 async def get_tenders(
     page: int = Query(1, ge=1, description="Page number (1-based)"),
