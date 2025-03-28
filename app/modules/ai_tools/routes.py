@@ -28,7 +28,8 @@ async def generate_tender_summary(
         output_id=request.output_id,
         regenerate=request.regenerate,
         questions=request.questions,
-        background_tasks=background_tasks
+        background_tasks=background_tasks,
+        tender_hash=request.tender_hash
     )
     
     # Return initial response with task ID

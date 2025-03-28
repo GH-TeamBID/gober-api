@@ -404,7 +404,7 @@ class AIDocumentGeneratorService:
     async def generate_conversational_summary(
         self,
         document_content: str,
-        tender_id: str,
+        tender_id: str = None,
         max_retries: int = 3
     ) -> Optional[str]:
         """
@@ -431,7 +431,7 @@ class AIDocumentGeneratorService:
 
         prompt = f"""
         Eres un asistente experto en licitaciones públicas. A continuación, te presento un documento detallado
-        sobre la licitación {tender_id}.
+        sobre la licitación.
 
         {document_content}
 
