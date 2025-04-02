@@ -45,9 +45,9 @@ class MeiliClient:
     def delete_documents(self, document_ids: list):
         return self.client.index(self.index_name).delete_documents(document_ids)
 
-    def search(self, query, page:int = 1, filters :str | None = None, limit: int | None = 20, hitsPerPage: int = 20):
+    def search(self, query, filters :str | None = None, page:int = 1, size: int = 20):
         return self.client.index(self.index_name).search(query, 
-            {"filter": filters, "limit": limit, "page": page, "hitsPerPage": hitsPerPage}
+            {"filter": filters, "page": page, "hitsPerPage": size} #"limit": limit, 
         )
 
 class MeiliHelpers:

@@ -8,7 +8,7 @@ def ErrorResponse(error: int = 500, message: str = "Server error"):
     raise HTTPException(status_code=error, detail={'message': message})
 
 @router.get("/tenders")
-def tenders_get(request: Request, input_data: dict):
+def tenders_get(request: Request, input_data: dict = {}):
     qparams = dict(request.query_params)
     filters = None
     if 'filters' in input_data:
@@ -25,7 +25,7 @@ def tenders_get(request: Request, input_data: dict):
         page = int(qparams['page']) if 'page' in qparams and qparams['page'] != '' else 1
         tenders_search = MeiliClient('tenders')
         result = tenders_search.search(match, filters=filters, page=page)
-        return {**result} #"filters": filters, "match": match, "data": input_data
+        return {**result}
     except Exception as e:
         ErrorResponse(500, f"{e}")
 
@@ -38,8 +38,13 @@ def tenders_create(request: dict):
         # Parsing
         for document in documents:
             if 'updated' in document and document['updated'] != '' and document['updated'] is not None:
-                xdate = datetime.strptime(document['updated'], '%Y-%m-%d %H:%M:%S')
+                format = '%Y-%m-%dT%H:%M:%S.%fZ' if "T" in document['updated'] and "Z" in document['updated'] else '%Y-%m-%d %H:%M:%S'
+                xdate = datetime.strptime(document['updated'], format)
                 document['updated'] = int(xdate.timestamp())
+            if 'submission_date' in document and document['submission_date'] != '' and document['submission_date'] is not None:
+                format = '%Y-%m-%dT%H:%M:%S.%fZ' if "T" in document['submission_date'] and "Z" in document['submission_date'] else '%Y-%m-%d %H:%M:%S'
+                xdate = datetime.strptime(document['submission_date'], format)
+                document['submission_date'] = int(xdate.timestamp())
         tenders_search = MeiliClient('tenders')
         tenders_search.add_documents(documents)
         return {'message': "Tenders saved"}
