@@ -24,7 +24,7 @@ class Identifier(BaseModel):
     scheme: Optional[str] = None
 
 class Address(BaseModel):
-    country_code: Optional[str] = None
+    country: Optional[str] = None
     nuts_code: Optional[str] = None
     address_area: Optional[str] = None
     admin_unit: Optional[str] = None
@@ -52,30 +52,58 @@ class Location(BaseModel):
     nuts_code: Optional[str] = None
     geographic_name: Optional[str] = None
     address: Optional[Address] = None
+    
+    def __str__(self):
+        return f"""{self.country_code} 
+                {self.nuts_code} 
+                {self.geographic_name} 
+                {self.address}"""
 
 class ProcurementDocument(BaseModel):
-    id: str
     title: str
     document_type: str
-    access_url: Optional[HttpUrl] = None
+    access_url: Optional[str] = None
+    
+    def __str__(self):
+        return f"""{self.title} 
+                ({self.document_type}) 
+                {self.access_url[:50]}"""
 
 class Purpose(BaseModel):
     main_classifications: List[str] = []
     additional_classifications: List[str] = []
+    
+    def __str__(self):
+        return f"""{self.main_classifications}
+                {self.additional_classifications}"""
 
 class ContractTerm(BaseModel):
     contract_nature_type: str
     additional_contract_nature: Optional[str] = None
     place_of_performance: Optional[Location] = None
+    
+    def __str__(self):
+        return f"""{self.contract_nature_type}
+                {self.additional_contract_nature}
+                {self.place_of_performance}"""
 
 class SubmissionTerm(BaseModel):
     receipt_deadline: Optional[datetime] = None
-    languages: List[str] = []
+    language: Optional[str] = None
+    
+    def __str__(self):
+        return f"""{self.receipt_deadline}
+                {self.language}"""
 
 class Period(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     duration_in_months: Optional[int] = None
+    
+    def __str__(self):
+        return f"""{self.start_date}
+                {self.end_date}
+                {self.duration_in_months}"""
 
 class Lot(BaseModel):
     id: str
@@ -83,10 +111,15 @@ class Lot(BaseModel):
     description: Optional[str] = None
     estimated_value: Optional[MonetaryValue] = None
 
+    def __str__(self):
+        return f"""{self.id}
+                {self.title}
+                {self.description}
+                {self.estimated_value}"""
+
 class TenderDetail(BaseModel):
     """Complete detail of a tender procedure from the RDF graph"""
-    id: str
-    uri: AnyUrl
+    uri: str
     identifier: Optional[Identifier] = None
     title: str
     description: Optional[str] = None
@@ -98,15 +131,11 @@ class TenderDetail(BaseModel):
     gross_value: Optional[MonetaryValue] = None
     
     # Dates and periods
-    submission_deadline: Optional[datetime] = None
     contract_period: Optional[Period] = None
     planned_period: Optional[Period] = None
     
     # Organization
     buyer: Optional[Organization] = None
-    
-    # Location
-    place_of_performance: Optional[Location] = None
     
     # Classification
     purpose: Optional[Purpose] = None
@@ -124,6 +153,26 @@ class TenderDetail(BaseModel):
     
     # Lots
     lots: List[Lot] = []
+
+    def __str__(self):
+        return f"""{self.uri}
+                {self.identifier}
+                {self.title}
+                {self.description}
+                {self.summary}
+                {self.estimated_value}
+                {self.net_value}
+                {self.gross_value}
+                {self.contract_period}
+                {self.planned_period}
+                {self.buyer}
+                {self.purpose}
+                {self.contract_term}
+                {self.submission_term}
+                {self.additional_information}
+                {self.status}
+                {self.procurement_documents}
+                {self.lots}"""
 
 class TenderResponse(BaseModel):
     """API response model for tender details"""

@@ -3,7 +3,6 @@ from app.modules.tenders import schemas, services
 from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
 from app.modules.auth.models import User
-from app.core.database import get_neptune_client
 from sqlalchemy.orm import Session
 from app.core.database import get_db    
 import logging
@@ -22,7 +21,17 @@ async def get_ai_document_sas_token(
     """
     Get a SAS token for a specific tender document.
     """
-    return await services.get_ai_document_sas_token(tender_id)
+    try:
+        logger.info(f"Getting SAS token for tender ID: {tender_id}")
+        sas_token = await services.get_ai_document_sas_token(tender_id)
+        logger.info(f"SAS token generated successfully")
+        return sas_token
+    except Exception as e:
+        logger.error(f"Error generating SAS token for tender ID {tender_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate SAS token: {str(e)}"
+        )
 
 @router.get("/ai_documents/{tender_id}")
 async def get_ai_documents(
