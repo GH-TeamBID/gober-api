@@ -3,7 +3,6 @@ from app.modules.tenders import schemas, services
 from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
 from app.modules.auth.models import User
-from app.core.database import get_neptune_client
 from sqlalchemy.orm import Session
 from app.core.database import get_db    
 import logging
