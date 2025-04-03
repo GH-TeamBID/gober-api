@@ -71,27 +71,45 @@ async def get_tender_documents(
         )
 
 @router.get("/") #, response_model=schemas.PaginatedTenderResponse
-async def get_tenders(request: Request, input_data: dict = {}):
-    #page: int = Query(1, ge=1, description="Page number (1-based)"), size: int = Query(10, ge=1, le=100, description="Number of items per page")
+async def get_tenders(request: Request):
     """
-    Get a paginated list of tenders sorted by submission deadline.
+    Get a paginated list of tenders with optional search and filters.
     
-    This endpoint retrieves a list of tender previews from the RDF graph database,
-    with pagination and sorting by submission deadline (most recent first).
+    This endpoint retrieves a list of tender previews from the search index,
+    with pagination, filtering and search functionality.
     
+    Query parameters:
     - **page**: Page number (starting from 1)
     - **size**: Number of items per page (default: 10, max: 100)
+    - **match**: Search query string to match against tender content
+    
+    Filters (provided in request body):
+    - **filters**: Array of filter objects with name/value pairs
     
     Returns:
         PaginatedTenderResponse: Paginated list of tender previews
     """
     try:
+        # Extract URL parameters
         params = dict(request.query_params)
-        filters = input_data['filters'] if 'filters' in input_data else None
-        """ page = int(params['page']) if 'page' in params and params['page'] != '' else 1
-        size = int(params['size']) if 'size' in params and params['size'] != '' else 10
-        return await services.get_tenders_paginated(page=page, size=size) """
-        result = SearchService.do_search('tenders', params, filters)
+        
+        # Check if there's a body with filters
+        body_filters = None
+        if request.method in ["GET", "POST"]:
+            try:
+                # Try to parse request body for filters
+                body = await request.json()
+                if "filters" in body:
+                    body_filters = body["filters"]
+                    # Log the filters received in the body
+                    print(f"Received filters in body: {body_filters}")
+            except Exception as e:
+                # No body or invalid body, which is fine for GET requests
+                print(f"No body or invalid body format: {str(e)}")
+        
+        # Convert the params to proper format for MeiliSearch
+        result = SearchService.do_search('tenders', params, body_filters)
+        
         items = [
             {
                 "tender_hash": tender["id"],
@@ -119,6 +137,28 @@ async def get_tenders(request: Request, input_data: dict = {}):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving tenders: {str(e)}"
         )
+
+@router.post("/") 
+async def post_tenders(request: Request):
+    """
+    Get a paginated list of tenders with filters in request body.
+    
+    This endpoint provides the same functionality as GET /tenders but 
+    allows filters to be provided in the request body.
+    
+    Query parameters:
+    - **page**: Page number (starting from 1)
+    - **size**: Number of items per page (default: 10, max: 100)
+    - **match**: Search query string to match against tender content
+    
+    Request body:
+    - **filters**: Array of filter objects with name/value pairs
+    
+    Returns:
+        PaginatedTenderResponse: Paginated list of tender previews
+    """
+    # Reuse the GET endpoint logic
+    return await get_tenders(request)
 
 @router.get("/detail/{tender_id}", response_model=schemas.TenderResponse)
 async def get_tender_detail(
