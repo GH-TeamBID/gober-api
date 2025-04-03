@@ -82,6 +82,7 @@ def do_search(index: str, params, filters = None):
         result['has_next'] = result['page'] < result['totalPages']
         result['has_prev'] = False if result['page'] == 1 else result['totalPages'] >= result['page']
         
+        
         return {**result}
     except Exception as e:
         return {'error': True, 'message': f"{e}"}
