@@ -1080,13 +1080,15 @@ def get_tender_summary(tender_id: str, db: Session):
     """
     logger.debug(f"Fetching summary for tender ID: {tender_id}")
     
-    # Determine if the provided ID is a complete URI or just a hash/identifier
-    if tender_id.startswith('http'):
-        tender_uri = tender_id
-    else:
-        # Construct the URI from the hash
-        tender_uri = f"http://gober.ai/spain/procedure/{tender_id}"
+    ## Determine if the provided ID is a complete URI or just a hash/identifier
+    #if tender_id.startswith('http'):
+    #    tender_uri = tender_id
+    #else:
+    #    # Construct the URI from the hash
+    #    tender_uri = f"http://gober.ai/spain/procedure/{tender_id}"
     
+    tender_uri = tender_id
+
     try:
         # Query for the summary using SQLAlchemy ORM
         tender_summary = db.query(TenderSummaryModel).filter(
@@ -1094,7 +1096,7 @@ def get_tender_summary(tender_id: str, db: Session):
         ).first()
         
         if tender_summary:
-            return schemas.TenderSummary(
+            tender_summary_data = schemas.TenderSummary(
                 id=tender_summary.id,
                 tender_uri=tender_summary.tender_uri,
                 summary=tender_summary.summary,
@@ -1102,6 +1104,7 @@ def get_tender_summary(tender_id: str, db: Session):
                 created_at=tender_summary.created_at,
                 updated_at=tender_summary.updated_at
             )
+            return tender_summary_data
         else:
             raise ValueError(f"Summary not found for tender with ID: {tender_id}")
     except Exception as e:
