@@ -12,6 +12,11 @@ from app.modules.tenders.models import UserTender as UserTenderModel, TenderDocu
 from sqlalchemy.orm import Session
 from app.core.database import engine
 from app.core.azure_blob import generate_sas_token
+from app.modules.tenders.queries_tender_detail import (query_core_template, query_identifier, query_contracting_entity, query_monetary_values,
+                                                        query_contractual_terms_and_location, query_cpvs, query_submission_terms,
+                                                        query_legal_documents, query_technical_documents, query_additional_documents,
+                                                        query_lots)
+from app.modules.tenders.tender_helpers import parse_tender_detail
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -57,92 +62,30 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
     
     logger.info(f"Using tender URI: {tender_uri}")
     
-    # First, verify the tender exists with a simple query
-    verify_query = f"""
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    ASK {{ <{tender_uri}> ?p ?o }}
-    """
-        
+    # Define multiple SPARQL queries
+    named_queries = [
+        ("core", query_core_template.format(tender_uri=tender_uri)),
+        ("identifier", query_identifier.format(tender_uri=tender_uri)),
+        ("contracting_entity", query_contracting_entity.format(tender_uri=tender_uri)),
+        ("monetary_values", query_monetary_values.format(tender_uri=tender_uri)),
+        ("contractual_terms_and_location", query_contractual_terms_and_location.format(tender_uri=tender_uri)),
+        ("cpvs", query_cpvs.format(tender_uri=tender_uri)),
+        ("submission_terms", query_submission_terms.format(tender_uri=tender_uri)),
+        ("legal_documents", query_legal_documents.format(tender_uri=tender_uri)),
+        ("technical_documents", query_technical_documents.format(tender_uri=tender_uri)),
+        ("additional_documents", query_additional_documents.format(tender_uri=tender_uri)),
+        ("lots", query_lots.format(tender_uri=tender_uri)),
+    ]    
+    
+    
     try:
-        # Check if tender exists
-        verify_result = neptune_client.execute_sparql_query(verify_query)
         
-        if not verify_result.get('boolean', False):
-            logger.error(f"Tender not found in Neptune: {tender_uri}")            
-            raise ValueError(f"Tender with URI {tender_uri} does not exist")
+        named_results = await neptune_client.execute_named_sparql_queries_parallel(named_queries)
         
-        # Now, fetch only the direct properties of the tender
-        tender_query = f"""
-        PREFIX dcterms: <http://purl.org/dc/terms/>
-        PREFIX ns1: <http://data.europa.eu/a4g/ontology#>
-        PREFIX ns2: <http://www.w3.org/ns/locn#>
-        PREFIX ns3: <http://publications.europa.eu/ontology/authority/>
-        PREFIX ns4: <http://www.w3.org/ns/adms#>
-        PREFIX ns5: <http://data.europa.eu/m8g/>
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-        
-        CONSTRUCT {{
-            <{tender_uri}> ?p ?o .
-            ?o ?p2 ?o2 .
-            ?o2 ?p3 ?o3 .
-        }}
-        WHERE {{ 
-        {{
-            <{tender_uri}> ?p ?o .
-        }}
-        UNION {{
-            <{tender_uri}> ?p ?intermediate .
-            ?intermediate ?p2 ?o2 .
-            BIND(?intermediate AS ?o)
-        }}
-        UNION {{
-            <{tender_uri}> ?p ?intermediate .
-            ?intermediate ?p2 ?o2 .
-            ?o2 ?p3 ?o3 .
-            BIND(?o2 AS ?o)
-        }}
-        }}
-        """
-                
-        # Execute the basic query
-        logger.info(f"Executing CONSTRUCT query for tender {tender_id}")
-        basic_result = neptune_client.execute_sparql_query(tender_query)
-        
-        logger.info(f"CONSTRUCT result type: {type(basic_result)}")
-        
-        # Parse into a graph
-        g = Graph()
-        try:
-            # Handle when basic_result is a dict (single JSON-LD object)
-            if isinstance(basic_result, dict):
-                g.parse(data=json.dumps(basic_result), format="json-ld")
-            # Handle when basic_result is a list (array of JSON-LD objects)
-            elif isinstance(basic_result, list):
-                g.parse(data=json.dumps(basic_result), format="json-ld")
-            # Handle raw string data (e.g., Turtle format)
-            else:
-                g.parse(data=basic_result, format="turtle")
-            
-            logger.info(f"Graph loaded successfully with {len(g)} triples")
-            if len(g) == 0:
-                logger.warning(f"Graph has 0 triples for tender {tender_uri}")
-        except Exception as e:
-            logger.error(f"Error parsing graph data: {str(e)}")
-            raise ValueError(f"Failed to parse data from Neptune: {str(e)}")
-                
-        # Parse the combined graph into a TenderDetail object
-        tender = parse_tender_from_graph(g, URIRef(tender_uri))
-        
-        logger.info(f"Tender successfully parsed")
-        
-        # Check if a summary exists for this tender URI
+        tender_detail = parse_tender_detail(named_results)
+
         try:
             async with get_async_db() as session:
-                # Debug: Log the exact value and type being used in the query
-                logger.info(f"Querying for summary with tender_uri: {tender_uri} (type: {type(tender_uri)})")
-                
                 # Use a text-based comparison instead of a direct equality check
                 # This avoids SQL Server's type inference issues
                 stmt = (
@@ -150,31 +93,33 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
                     .where(
                         # Use cast or func.varchar to ensure string comparison
                         func.trim(cast(TenderSummaryModel.tender_uri, String)) == 
-                        func.trim(cast(text("'" + str(tender_uri) + "'"), String))
+                        func.trim(cast(text("'" + str(tender_id) + "'"), String))
                     )
                 )
-                
-                logger.info(f"Executing query: {str(stmt)}")
-                result = await session.execute(stmt)
+            
+                result = session.execute(stmt)
+                # The scalar_one_or_none() method is not awaitable - it's a direct method call
                 tender_summary = result.scalar_one_or_none()
-                
+            
                 # If a summary exists, add it to the tender details
                 if tender_summary:
                     logger.info(f"Found summary for tender: {tender_uri}")
-                    tender.summary = tender_summary.summary
+                    tender_detail.summary = tender_summary.summary
                 else:
                     logger.info(f"No summary found for tender: {tender_uri}")
+        
         except Exception as e:
             # This catches database errors without failing the entire request
             logger.error(f"Error retrieving tender summary: {str(e)}")
             logger.error(f"Details: {type(e).__name__}, {e.args}")
             # Continue without the summary
         
-        return tender
+        return tender_detail
         
     except Exception as e:
         logger.error(f"Error retrieving tender {tender_id}: {str(e)}")
         raise
+        
 
 def parse_tender_from_graph(g: Graph, tender_uri: URIRef) -> schemas.TenderDetail:
     """
