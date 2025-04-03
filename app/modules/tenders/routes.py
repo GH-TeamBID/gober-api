@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Path, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Body, Query, Request
 from app.modules.tenders import schemas, services
 from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
@@ -6,6 +6,8 @@ from app.modules.auth.models import User
 from sqlalchemy.orm import Session
 from app.core.database import get_db    
 import logging
+from app.modules.search import services as SearchService
+from datetime import datetime, timezone
 
 router = APIRouter(tags=["tenders"])
 
@@ -68,11 +70,9 @@ async def get_tender_documents(
             detail=f"Error retrieving tender documents: {str(e)}"
         )
 
-@router.get("/", response_model=schemas.PaginatedTenderResponse)
-async def get_tenders(
-    page: int = Query(1, ge=1, description="Page number (1-based)"),
-    size: int = Query(10, ge=1, le=100, description="Number of items per page")
-):
+@router.get("/") #, response_model=schemas.PaginatedTenderResponse
+async def get_tenders(request: Request, input_data: dict = {}):
+    #page: int = Query(1, ge=1, description="Page number (1-based)"), size: int = Query(10, ge=1, le=100, description="Number of items per page")
     """
     Get a paginated list of tenders sorted by submission deadline.
     
@@ -86,7 +86,34 @@ async def get_tenders(
         PaginatedTenderResponse: Paginated list of tender previews
     """
     try:
-        return await services.get_tenders_paginated(page=page, size=size)
+        params = dict(request.query_params)
+        filters = input_data['filters'] if 'filters' in input_data else None
+        """ page = int(params['page']) if 'page' in params and params['page'] != '' else 1
+        size = int(params['size']) if 'size' in params and params['size'] != '' else 10
+        return await services.get_tenders_paginated(page=page, size=size) """
+        result = SearchService.do_search('tenders', params, filters)
+        items = [
+            {
+                "tender_hash": tender["id"],
+                "tender_id": tender["exp"],
+                "title": tender["title"],
+                "description": tender["description"],
+                "submission_date": datetime.fromtimestamp(tender["submission_date"], timezone.utc).isoformat() if tender["submission_date"] not in ("", None) else None,
+                "updated": datetime.fromtimestamp(tender["updated"], timezone.utc).isoformat() if tender["updated"] not in ("", None) else None,
+                "n_lots": tender["lotes"],
+                "pub_org_name": tender["contracting_body"],
+                "budget": {
+                    "amount": tender["budget_amount"],
+                    "currency": "EUR"
+                },
+                "location": tender["location"],
+                "contract_type": tender["contract_type"],
+                "cpv_categories": tender["cps"]
+            }
+            for tender in result['items']
+        ]
+        result['items'] = items
+        return {**result}
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -88,6 +88,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str]
     token_type: str = "bearer"
     user_role: str
 

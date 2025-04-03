@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth import schemas, services, models
 from app.core.database import get_db
 from typing import List
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -42,10 +43,18 @@ def login(login_req: schemas.LoginRequest, db: Session = Depends(get_db)):
         data={"sub": user.email},
         user_role=user.role
     )
+
+    # Refresh token
+    refresh_token = services.create_access_token(
+        data={"sub": user.email},
+        user_role=user.role,
+        expires_delta=settings.REFRESH_TOKEN_EXPIRE_MINUTES
+    )
     
     # Return both the token and user role
     return schemas.LoginResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user_role=user.role
     )
@@ -355,3 +364,25 @@ async def public_search_cpv_codes(
     )
     
     return result
+
+@router.post("/refresh-access-token") #, response_model=schemas.LoginResponse
+def refresh_access_token(
+    current_user: models.User = Depends(services.get_current_user),
+    db: Session = Depends(get_db)
+):
+    #return current_user
+    """
+    Refresh access token by refresh token
+    """
+    # Create a token that includes both the user email and role
+    access_token = services.create_access_token(
+        data={"sub": current_user.email},
+        user_role=current_user.role
+    )
+    
+    return schemas.LoginResponse(
+        access_token=access_token,
+        refresh_token=None,
+        token_type="bearer",
+        user_role=current_user.role
+    )

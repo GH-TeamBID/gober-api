@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # Security settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", secrets.token_hex(32))
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 hours
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", "10080"))  # 1 Week
     ALGORITHM: str = "HS256"
     
     # Admin user settings
