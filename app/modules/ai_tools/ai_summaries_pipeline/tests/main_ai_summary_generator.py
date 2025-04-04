@@ -32,7 +32,7 @@ load_dotenv()
 async def main():
     # Load environment variables
     marker_api_key = os.getenv("MARKER_API", "")
-    google_ai_api_key = os.getenv("GOOGLE_AI_API", "")
+    google_ai_api_key = os.getenv("GOOGLE_AI_API_KEY", "")
 
     # Check if keys are available
     if not marker_api_key:

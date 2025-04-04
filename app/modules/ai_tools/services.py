@@ -121,10 +121,12 @@ async def _process_document_summary_task(
         _update_task_status(task_id, "processing", 5)
 
         logger.info(f"Starting processing for task {task_id} (output_id: {output_id})")
+        logger.info(f"Settings, MarkerAPI: {settings.MARKER_API_KEY}, and Gemini API: {settings.GEMINI_API_KEY}")
+
 
         # Verify required settings
         marker_api_key = settings.MARKER_API_KEY
-        google_ai_api_key = settings.GEMINI_API_KEY
+        google_ai_api_key = settings.GOOGLE_AI_API_KEY
 
         if not marker_api_key:
             raise ValueError("MARKER_API_KEY environment variable not set")

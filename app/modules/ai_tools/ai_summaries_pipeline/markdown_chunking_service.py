@@ -393,15 +393,17 @@ class MarkdownChunkingService:
         def traverse_chunks(chunk):
             # Add the current chunk
             flat_chunks.append({
+                'text': chunk.text,
+                'metadata': {
                     'chunk_id': chunk.metadata.chunk_id,
                     'level': chunk.metadata.level,
                     'title': chunk.metadata.title,
-                'text': chunk.text,
                     'parent_id': chunk.metadata.parent_id,
                     'pdf_path': chunk.metadata.pdf_path,
                     'page_number': chunk.metadata.page_number,
                     'start_line': chunk.metadata.start_line,
                     'end_line': chunk.metadata.end_line
+                }
             })
 
             # Recursively process children
