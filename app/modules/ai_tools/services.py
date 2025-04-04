@@ -165,7 +165,7 @@ async def _process_document_summary_task(
             questions = QUESTIONS
 
         # Process the documents directly using the workflow
-        result = await workflow.process_documents_directly(
+        result = await workflow.process_tender(
             documents=document_dicts,
             output_id=output_id,
             regenerate=regenerate,

@@ -37,7 +37,11 @@ async def get_ai_document_sas_token(
 async def get_ai_documents(
     tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
 ):
-    """  """
+    """
+    Get the AI documents path and summary for a specific tender.
+    This endpoint does not retrieve the AI document content, only the path and summary.
+    For the AI document content, use the /ai-tender-documents/{tender_id} endpoint.
+    """
     try:
         ai_documents = await services.get_ai_documents(tender_id)
         if ai_documents is not None: return ai_documents

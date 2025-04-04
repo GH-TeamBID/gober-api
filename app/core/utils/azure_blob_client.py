@@ -122,16 +122,9 @@ class AzureBlobStorageClient:
         # We'll use a standard path format for all tenders
         folder_path = f"tenders/{tender_hash}/"
 
-        # We can create an empty blob to ensure the "folder" exists
-        # This is optional but helps with folder listing
-        try:
-            placeholder_path = f"{folder_path}.placeholder"
-            blob_client = self.container_client.get_blob_client(placeholder_path)
-            blob_client.upload_blob(b"", overwrite=True)
-            logging.info(f"Created tender folder structure: {folder_path}")
-        except Exception as e:
-            # If this fails, we can still proceed since Azure doesn't require actual "folder" creation
-            logging.warning(f"Note: Failed to create placeholder for folder {folder_path}: {str(e)}")
+        # No need to create placeholder files in Azure Blob Storage
+        # Folders are virtual concepts represented by the prefix in the blob name
+        logging.info(f"Using tender folder structure: {folder_path}")
 
         return folder_path
 
