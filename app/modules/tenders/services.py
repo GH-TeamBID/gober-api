@@ -575,6 +575,33 @@ def get_user_saved_tenders(db: Session, user_id: str) -> List[schemas.UserTender
         ) for ut in user_tenders
     ]
 
+def get_user_saved_tenders_uris(db: Session, user_id: str) -> List[str]:
+    """
+    Get the URIs of all tenders saved by a user.
+    
+    Args:
+        db: SQLAlchemy Session
+        user_id: The ID of the user
+        
+    Returns:
+        List[str]: List of saved tender URIs for the user
+    """
+    logger.debug(f"Getting saved tender URIs for user {user_id}")
+    
+    try:
+        # Query only the tender_uri column
+        saved_uris = db.query(UserTenderModel.tender_uri).filter(
+            UserTenderModel.user_id == user_id
+        ).all()
+        
+        # The result is a list of tuples, extract the first element of each tuple
+        return [uri[0] for uri in saved_uris]
+        
+    except Exception as e:
+        logger.error(f"Error retrieving saved tender URIs for user {user_id}: {str(e)}")
+        # Return empty list in case of error to avoid breaking the search
+        return []
+
 async def create_or_update_tender_summary(tender_uri: str, summary: str) -> schemas.TenderSummary:
     """
     Create or update a summary for a tender.

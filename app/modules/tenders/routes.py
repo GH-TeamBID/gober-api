@@ -71,45 +71,79 @@ async def get_tender_documents(
         )
 
 @router.get("/") #, response_model=schemas.PaginatedTenderResponse
-async def get_tenders(request: Request):
+async def get_tenders(
+    request: Request,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(10, ge=1, le=100, description="Number of items to return"),
+    is_saved: bool = Query(False, description="Filter for saved tenders only"),
+    match: Optional[str] = Query(None, description="Search query string"),
+    sort_field: Optional[str] = Query(None, description="Field to sort by"),
+    sort_direction: Optional[str] = Query(None, description="Sort direction (asc/desc)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
-    Get a paginated list of tenders with optional search and filters.
+    Get a list of tenders with optional search, filters, sorting, and offset/limit.
     
     This endpoint retrieves a list of tender previews from the search index,
-    with pagination, filtering and search functionality.
+    with offset/limit pagination, filtering, search, and sorting functionality.
     
     Query parameters:
-    - **page**: Page number (starting from 1)
-    - **size**: Number of items per page (default: 10, max: 100)
+    - **offset**: Number of items to skip (default: 0)
+    - **limit**: Number of items per page (default: 10, max: 100)
+    - **is_saved**: Filter for saved tenders only (default: False)
     - **match**: Search query string to match against tender content
-    
+    - **sort_field**: Field to sort by (e.g., 'submission_date')
+    - **sort_direction**: Sort direction ('asc' or 'desc')
+
     Filters (provided in request body):
     - **filters**: Array of filter objects with name/value pairs
     
     Returns:
-        PaginatedTenderResponse: Paginated list of tender previews
+        PaginatedTenderResponse: List of tender previews with total count and offset/limit info
     """
     try:
-        # Extract URL parameters
-        params = dict(request.query_params)
-        
+        # Prepare parameters for search service
+        search_params = {
+            'match': match,
+            'sort_field': sort_field,
+            'sort_direction': sort_direction,
+            'offset': offset,
+            'limit': limit
+        }
+        # Remove None values to avoid sending empty params
+        search_params = {k: v for k, v in search_params.items() if v is not None}
+
         # Check if there's a body with filters
         body_filters = None
         if request.method in ["GET", "POST"]:
             try:
-                # Try to parse request body for filters
                 body = await request.json()
                 if "filters" in body:
                     body_filters = body["filters"]
-                    # Log the filters received in the body
                     print(f"Received filters in body: {body_filters}")
             except Exception as e:
-                # No body or invalid body, which is fine for GET requests
                 print(f"No body or invalid body format: {str(e)}")
         
-        # Convert the params to proper format for MeiliSearch
-        result = SearchService.do_search('tenders', params, body_filters)
+        # Fetch saved tender URIs if requested
+        saved_tender_uris: Optional[List[str]] = None
+        if is_saved:
+            logger.info(f"Fetching saved tenders for user {current_user.id}")
+            saved_tender_uris = services.get_user_saved_tenders_uris(db, str(current_user.id))
+            logger.info(f"Found {len(saved_tender_uris)} saved tender URIs.")
+            # If no saved tenders, return empty list immediately? Or let search handle it?
+            # Let search handle it for consistency, it might return 0 results.
         
+        # Call the search service with updated parameters
+        # Assuming SearchService.do_search accepts offset, limit, and saved_tender_uris
+        result = SearchService.do_search(
+            index_name='tenders', 
+            params=search_params, 
+            body_filters=body_filters,
+            saved_tender_uris=saved_tender_uris # Pass the list of saved URIs
+        )
+        
+        # Format the results (same as before)
         items = [
             {
                 "tender_hash": tender["id"],
@@ -128,37 +162,77 @@ async def get_tenders(request: Request):
                 "contract_type": tender["contract_type"],
                 "cpv_categories": tender["cps"]
             }
-            for tender in result['items']
+            for tender in result.get('items', []) # Use .get for safety
         ]
-        result['items'] = items
-        return {**result}
+        
+        # Reconstruct the response, assuming SearchService returns total, offset, limit
+        # Adapt this based on the actual return value of SearchService.do_search
+        response_data = {
+            "items": items,
+            "total": result.get("total", 0),
+            "offset": result.get("offset", offset),
+            "limit": result.get("limit", limit),
+            # Calculate has_next based on offset, limit, and total
+            "has_next": (result.get("offset", offset) + len(items)) < result.get("total", 0),
+            "has_prev": result.get("offset", offset) > 0 # has_prev is based on offset
+            # Keep debug info if available
+        }
+        if 'debug' in result:
+             response_data['debug'] = result['debug']
+
+        return response_data
+
     except Exception as e:
+        logger.error(f"Error retrieving tenders: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving tenders: {str(e)}"
         )
 
 @router.post("/") 
-async def post_tenders(request: Request):
+async def post_tenders(
+    request: Request,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(10, ge=1, le=100, description="Number of items to return"),
+    is_saved: bool = Query(False, description="Filter for saved tenders only"),
+    match: Optional[str] = Query(None, description="Search query string"),
+    sort_field: Optional[str] = Query(None, description="Field to sort by"),
+    sort_direction: Optional[str] = Query(None, description="Sort direction (asc/desc)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
-    Get a paginated list of tenders with filters in request body.
+    Get a list of tenders with filters in request body and offset/limit.
     
     This endpoint provides the same functionality as GET /tenders but 
     allows filters to be provided in the request body.
     
     Query parameters:
-    - **page**: Page number (starting from 1)
-    - **size**: Number of items per page (default: 10, max: 100)
+    - **offset**: Number of items to skip (default: 0)
+    - **limit**: Number of items per page (default: 10, max: 100)
+    - **is_saved**: Filter for saved tenders only (default: False)
     - **match**: Search query string to match against tender content
-    
+    - **sort_field**: Field to sort by
+    - **sort_direction**: Sort direction ('asc' or 'desc')
+
     Request body:
     - **filters**: Array of filter objects with name/value pairs
     
     Returns:
-        PaginatedTenderResponse: Paginated list of tender previews
+        PaginatedTenderResponse: List of tender previews
     """
-    # Reuse the GET endpoint logic
-    return await get_tenders(request)
+    # Reuse the GET endpoint logic by calling it directly
+    return await get_tenders(
+        request=request, 
+        offset=offset, 
+        limit=limit, 
+        is_saved=is_saved,
+        match=match,
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        db=db, 
+        current_user=current_user
+    )
 
 @router.get("/detail/{tender_id}", response_model=schemas.TenderResponse)
 async def get_tender_detail(

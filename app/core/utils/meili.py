@@ -1,6 +1,7 @@
 import meilisearch
 #from app.core.utils.helpers import Envs
 from app.core.config import settings
+from typing import Optional
 
 class MeiliClient:
     # docs: https://www.meilisearch.com/docs/reference/api/documents
@@ -45,86 +46,37 @@ class MeiliClient:
     def delete_documents(self, document_ids: list):
         return self.client.index(self.index_name).delete_documents(document_ids)
 
-    def search(self, query, filters=None, page:int = 1, size: int = 20):
+    def search(self, query: str, offset: int = 0, limit: int = 20, filter: Optional[str] = None, sort: Optional[list] = None):
         """
-        Search the MeiliSearch index with the given query and filters
+        Search the MeiliSearch index with the given query and options.
         
         Args:
             query: The search query text
-            filters: Filters to apply. Can be:
-                - A string (MeiliSearch filter expression)
-                - A dictionary (field-value pairs for filtering)
-                - None (no filtering)
-            page: The page number to return (1-based)
-            size: Number of results per page
+            offset: Number of documents to skip (default: 0)
+            limit: Maximum number of documents to return (default: 20)
+            filter: Filter string to apply (MeiliSearch filter syntax)
+            sort: List of fields to sort by (e.g., ["submission_date:desc"])
             
         Returns:
             Search results from MeiliSearch
         """
-        search_params = {
-            "page": page,
-            "hitsPerPage": size
-        }
+        # Prepare optional parameters for the MeiliSearch library call
+        search_params = {}
+        if offset is not None:
+            search_params['offset'] = offset
+        if limit is not None:
+            search_params['limit'] = limit
+        if filter:
+            search_params['filter'] = filter
+        if sort:
+            search_params['sort'] = sort
         
-        # Add filters if provided
-        if filters is not None:
-            if isinstance(filters, dict) and filters:
-                # Convert dictionary to MeiliSearch filter string
-                filter_parts = []
-                
-                for field, value in filters.items():
-                    if value is None:
-                        continue
-                        
-                    # Handle array values (OR condition between values)
-                    if isinstance(value, list) and value:
-                        # For array fields, we need to check if each item matches any value in the array
-                        sub_parts = []
-                        for val in value:
-                            if isinstance(val, str):
-                                sub_parts.append(f"{field} = '{val}'")
-                            else:
-                                sub_parts.append(f"{field} = {val}")
-                        
-                        if sub_parts:
-                            filter_parts.append(f"({' OR '.join(sub_parts)})")
-                    # Handle field with _gte suffix (greater than or equal)
-                    elif field.endswith('_gte'):
-                        base_field = field[:-4]  # Remove _gte suffix
-                        filter_parts.append(f"{base_field} >= {value}")
-                    # Handle field with _lte suffix (less than or equal)
-                    elif field.endswith('_lte'):
-                        base_field = field[:-4]  # Remove _lte suffix
-                        filter_parts.append(f"{base_field} <= {value}")
-                    # Handle field with _gt suffix (greater than)
-                    elif field.endswith('_gt'):
-                        base_field = field[:-3]  # Remove _gt suffix
-                        filter_parts.append(f"{base_field} > {value}")
-                    # Handle field with _lt suffix (less than)
-                    elif field.endswith('_lt'):
-                        base_field = field[:-3]  # Remove _lt suffix
-                        filter_parts.append(f"{base_field} < {value}")
-                    # Handle string values
-                    elif isinstance(value, str):
-                        filter_parts.append(f"{field} = '{value}'")
-                    # Handle other values
-                    else:
-                        filter_parts.append(f"{field} = {value}")
-                
-                if filter_parts:
-                    filters = " AND ".join(filter_parts)
-                    print(f"Converted filter dictionary to string: {filters}")
-                else:
-                    filters = None
-            
-            # Add the filter string to search parameters if it's not empty
-            if filters:
-                search_params["filter"] = filters
-        
-        # Debug
+        # Debug: Print the parameters being sent to MeiliSearch
         print(f"MeiliSearch query: '{query}', params: {search_params}")
         
-        return self.client.index(self.index_name).search(query, search_params)
+        # Call the underlying MeiliSearch client's search method
+        # Using self.index is slightly more direct than self.client.index(...)
+        return self.index.search(query, search_params)
 
 class MeiliHelpers:
     OPERATORS = {"=", "!=", "<=", ">=", "<", ">", "TO", "EXISTS", "IN", "NOT", "IS", "IS NOT"}
@@ -132,18 +84,65 @@ class MeiliHelpers:
     def parse_params_filters(params_filters: list):
         filters = ""
         for param_filter in params_filters:
-            if 'name' not in param_filter or param_filter['name'] == '': return {'error': True, 'message': "Param filter 'name' is required"}
-            if 'value' not in param_filter: return {'error': True, 'message': "Param filter 'value' is required"}
+            # Validate required keys
+            if not isinstance(param_filter, dict):
+                print(f"Warning: Skipping non-dict filter item: {param_filter}")
+                continue
+            if 'name' not in param_filter or param_filter['name'] == '': 
+                return {'error': True, 'message': "Param filter 'name' is required"}
+            # Value is not strictly required for operators like EXISTS
+            # if 'value' not in param_filter: 
+            #     return {'error': True, 'message': "Param filter 'value' is required"}
+            
             fname = param_filter.get('name')
-            fvalue = param_filter.get('value')
-            foperator = param_filter.get('operator') if 'operator' in param_filter and param_filter['operator'] != '' else "="
-            fexpression = param_filter.get('expression') if 'expression' in param_filter and param_filter['expression'] != '' else "AND"
-            if foperator not in MeiliHelpers.OPERATORS: return {'error': True, 'message': f"Param filter '{fname}' operator not valid"}
-            if foperator == 'IN' and isinstance(fvalue, list) is False: return {'error': True, 'message': f"Value of filter '{fname}' must be array"}
-            if isinstance(fvalue, str) and fvalue != 'EMPTY': fvalue = f"'{fvalue}'"
-            filter_str = "" if filters == "" else f" {fexpression} "
-            #if isinstance(fvalue, list): fvalue = f"[{', '.join([repr(v) for v in fvalue])}]"
-            filter_str += f"{fname} {foperator} {fvalue}"
-            filters += filter_str
-        
-        return {'error': False, 'filters': filters.strip(" ")}
+            fvalue = param_filter.get('value') # May be None for EXISTS etc.
+            foperator = param_filter.get('operator', '=') # Default operator
+            fexpression = param_filter.get('expression', 'AND') # Default expression
+            
+            if foperator not in MeiliHelpers.OPERATORS: 
+                return {'error': True, 'message': f"Param filter '{fname}' operator '{foperator}' not valid"}
+            
+            # Handle specific operator requirements
+            if foperator == 'IN' and not isinstance(fvalue, list):
+                return {'error': True, 'message': f"Value of filter '{fname}' with operator IN must be an array"}
+            if foperator in ["EXISTS", "NOT EXISTS"] and 'value' in param_filter: # Should not have value
+                 print(f"Warning: Filter '{fname}' with operator {foperator} should not have a value.")
+                 fvalue = None # Ignore value for EXISTS/NOT EXISTS
+            elif foperator not in ["EXISTS", "NOT EXISTS"] and 'value' not in param_filter:
+                 return {'error': True, 'message': f"Param filter '{fname}' with operator {foperator} requires a value"}
+
+            # Format the value part
+            value_str = ""
+            if foperator == 'IN':
+                # Correctly format IN operator: field IN [val1, val2]
+                # Ensure values are quoted if strings
+                formatted_values = []
+                for v in fvalue:
+                    if isinstance(v, str):
+                        # Escape single quotes within the string
+                        escaped_v = v.replace("'", "\\'") 
+                        formatted_values.append(f"'{escaped_v}'")
+                    else:
+                        formatted_values.append(str(v))
+                value_str = f"[{', '.join(formatted_values)}]"
+            elif fvalue is not None: # Format value for other operators
+                if isinstance(fvalue, str):
+                    # Escape single quotes
+                    escaped_fvalue = fvalue.replace("'", "\\'")
+                    value_str = f"'{escaped_fvalue}'" # Quote strings
+                else:
+                    value_str = str(fvalue)
+
+            # Build the filter part for this item
+            filter_part = f"{fname} {foperator}"
+            if value_str: # Add value only if it was formatted (e.g., not for EXISTS)
+                filter_part += f" {value_str}"
+            
+            # Append to the main filters string
+            if filters == "":
+                filters += filter_part
+            else:
+                filters += f" {fexpression} {filter_part}"
+
+        print(f"Generated MeiliSearch filter string: {filters}")
+        return {'error': False, 'filters': filters.strip()}
