@@ -7,7 +7,7 @@ class ContractNatureType(str, Enum):
     SUPPLY = "supply"
     SERVICES = "services"
     WORKS = "works"
-    
+
 class TenderStatus(str, Enum):
     PLANNED = "planned"
     ACTIVE = "active"
@@ -52,27 +52,27 @@ class Location(BaseModel):
     nuts_code: Optional[str] = None
     geographic_name: Optional[str] = None
     address: Optional[Address] = None
-    
+
     def __str__(self):
-        return f"""{self.country_code} 
-                {self.nuts_code} 
-                {self.geographic_name} 
+        return f"""{self.country_code}
+                {self.nuts_code}
+                {self.geographic_name}
                 {self.address}"""
 
 class ProcurementDocument(BaseModel):
     title: str
     document_type: str
     access_url: Optional[str] = None
-    
+
     def __str__(self):
-        return f"""{self.title} 
-                ({self.document_type}) 
+        return f"""{self.title}
+                ({self.document_type})
                 {self.access_url[:50]}"""
 
 class Purpose(BaseModel):
     main_classifications: List[str] = []
     additional_classifications: List[str] = []
-    
+
     def __str__(self):
         return f"""{self.main_classifications}
                 {self.additional_classifications}"""
@@ -81,7 +81,7 @@ class ContractTerm(BaseModel):
     contract_nature_type: str
     additional_contract_nature: Optional[str] = None
     place_of_performance: Optional[Location] = None
-    
+
     def __str__(self):
         return f"""{self.contract_nature_type}
                 {self.additional_contract_nature}
@@ -90,7 +90,7 @@ class ContractTerm(BaseModel):
 class SubmissionTerm(BaseModel):
     receipt_deadline: Optional[datetime] = None
     language: Optional[str] = None
-    
+
     def __str__(self):
         return f"""{self.receipt_deadline}
                 {self.language}"""
@@ -99,7 +99,7 @@ class Period(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     duration_in_months: Optional[int] = None
-    
+
     def __str__(self):
         return f"""{self.start_date}
                 {self.end_date}
@@ -124,33 +124,33 @@ class TenderDetail(BaseModel):
     title: str
     description: Optional[str] = None
     summary: Optional[str] = None
-    
+
     # Values
     estimated_value: Optional[MonetaryValue] = None
     net_value: Optional[MonetaryValue] = None
     gross_value: Optional[MonetaryValue] = None
-    
+
     # Dates and periods
     contract_period: Optional[Period] = None
     planned_period: Optional[Period] = None
-    
+
     # Organization
     buyer: Optional[Organization] = None
-    
+
     # Classification
     purpose: Optional[Purpose] = None
-    
+
     # Contract details
     contract_term: Optional[ContractTerm] = None
     submission_term: Optional[SubmissionTerm] = None
-    
+
     # Additional information
     additional_information: Optional[str] = None
     status: Optional[TenderStatus] = None
-    
+
     # Related documents
     procurement_documents: List[ProcurementDocument] = []
-    
+
     # Lots
     lots: List[Lot] = []
 
@@ -247,7 +247,7 @@ class SaveTenderRequest(BaseModel):
     """Schema for the client request to save a tender"""
     tender_uri: str
     situation: Optional[str] = None
-    
+
 class UnsaveTenderRequest(BaseModel):
     """Schema for the client request to unsave a tender"""
     tender_uri: str
@@ -265,3 +265,10 @@ class TenderDocuments(BaseModel):
     """Schema for tender documents"""
     tender_uri: str
     documents: List[Document]
+
+class TenderDocumentResponse(BaseModel):
+    """Response model for retrieving tender AI documents"""
+    tender_hash: str
+    summary: Optional[str] = None
+    ai_document: str
+    combined_chunks: str
