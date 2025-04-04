@@ -35,3 +35,10 @@ class TenderSummaryStatusResponse(BaseModel):
     updated_at: Optional[datetime] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+class TenderDocumentResponse(BaseModel):
+    """Response model for retrieving tender documents"""
+    tender_hash: str
+    summary: Optional[str] = None
+    ai_document: str
+    combined_chunks: str

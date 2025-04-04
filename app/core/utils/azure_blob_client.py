@@ -80,6 +80,98 @@ class AzureBlobStorageClient:
             logging.error(error_msg)
             raise RuntimeError(error_msg)
 
+    def upload_text(self, text, blob_path):
+        """
+        Upload text data to Azure Blob Storage.
+
+        Args:
+            text (str): Text data to upload
+            blob_path (str): Path in blob storage
+
+        Returns:
+            str: Path of the uploaded blob
+        """
+        try:
+            # Get the blob client
+            blob_client = self.container_client.get_blob_client(blob_path)
+
+            # Upload the text data
+            blob_client.upload_blob(text.encode('utf-8'), overwrite=True)
+
+            logging.info(f"Text data uploaded to {blob_path}")
+
+            return blob_path
+
+        except Exception as e:
+            error_msg = f"Failed to upload text to blob: {blob_path}. Error: {str(e)}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    def create_tender_folder(self, tender_hash):
+        """
+        Creates a logical folder structure for a tender.
+        In Azure Blob Storage, folders are virtual concepts represented by blob name prefixes.
+
+        Args:
+            tender_hash (str): Unique identifier for the tender
+
+        Returns:
+            str: The folder prefix path for the tender
+        """
+        # In Azure Blob Storage, folders are just prefixes in blob names
+        # We'll use a standard path format for all tenders
+        folder_path = f"tenders/{tender_hash}/"
+
+        # We can create an empty blob to ensure the "folder" exists
+        # This is optional but helps with folder listing
+        try:
+            placeholder_path = f"{folder_path}.placeholder"
+            blob_client = self.container_client.get_blob_client(placeholder_path)
+            blob_client.upload_blob(b"", overwrite=True)
+            logging.info(f"Created tender folder structure: {folder_path}")
+        except Exception as e:
+            # If this fails, we can still proceed since Azure doesn't require actual "folder" creation
+            logging.warning(f"Note: Failed to create placeholder for folder {folder_path}: {str(e)}")
+
+        return folder_path
+
+    def upload_tender_file(self, tender_hash, file_type, content, file_name=None):
+        """
+        Upload a file to the specific tender folder with standard naming.
+
+        Args:
+            tender_hash (str): Unique identifier for the tender
+            file_type (str): Type of file ('combined_chunks' or 'ai_document')
+            content (str or bytes): Content to upload
+            file_name (str, optional): Custom file name to use instead of standard names
+
+        Returns:
+            str: Blob path of the uploaded file
+        """
+        # Create the folder structure if it doesn't exist
+        folder_path = f"tenders/{tender_hash}/"
+
+        # Determine the file name based on type
+        if not file_name:
+            if file_type == 'combined_chunks':
+                file_name = 'combined_chunks.json'
+            elif file_type == 'ai_document':
+                file_name = 'ai_document.md'
+            else:
+                file_name = f"{file_type}.data"
+
+        # Complete blob path
+        blob_path = f"{folder_path}{file_name}"
+
+        # Upload based on content type
+        if isinstance(content, str):
+            return self.upload_text(content, blob_path)
+        elif isinstance(content, bytes):
+            self.upload_bytes(content, blob_path)
+            return blob_path
+        else:
+            raise ValueError(f"Unsupported content type: {type(content)}")
+
     def download_document(self, blob_path, file_path=None):
         """
         Download a document from Azure Blob Storage.
