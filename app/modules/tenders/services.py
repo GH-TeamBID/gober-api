@@ -1358,29 +1358,42 @@ async def _fetch_content_from_url(url: str) -> Optional[str]:
         logger.error(f"Generic error fetching content from URL {url[:100]}...: {e}", exc_info=True)
         return None
 
-async def get_ai_document_content_from_azure(tender_id: str, db: Session) -> Optional[str]:
-    """Gets SAS token and fetches AI document content from Azure."""
-    logger.info(f"Attempting to fetch AI document content for tender ID: {tender_id}")
+async def get_ai_document_content_from_azure(tender_id: str, db: Session) -> Optional[Dict[str, Any]]:
+    """Gets SAS tokens and fetches AI document markdown and chunks JSON content from Azure."""
+    logger.info(f"Attempting to fetch AI document and chunks content for tender ID: {tender_id}")
     try:
-        # Use existing function to get metadata including SAS token
-        # This function already handles the DB lookup
+        # Use existing function to get metadata including SAS tokens
         ai_metadata = await get_ai_documents(tender_id, db)
 
-        if ai_metadata and ai_metadata.get("ai_doc_sas_token"):
-            sas_url = ai_metadata["ai_doc_sas_token"]
-            logger.info(f"Fetching AI content using SAS URL for tender {tender_id}")
-            content = await _fetch_content_from_url(sas_url)
-            if content is not None:
-                logger.info(f"Successfully fetched AI document content for tender {tender_id}. Length: {len(content)}")
-                return content
+        if ai_metadata and ai_metadata.get("ai_doc_sas_token") and ai_metadata.get("combined_chunks_sas_token"):
+            ai_doc_sas_url = ai_metadata["ai_doc_sas_token"]
+            chunks_sas_url = ai_metadata["combined_chunks_sas_token"]
+            
+            logger.info(f"Fetching AI content and chunks using SAS URLs for tender {tender_id}")
+            
+            # Fetch both contents concurrently
+            ai_doc_content, chunks_json_content = await asyncio.gather(
+                _fetch_content_from_url(ai_doc_sas_url),
+                _fetch_content_from_url(chunks_sas_url)
+            )
+
+            if ai_doc_content is not None and chunks_json_content is not None:
+                logger.info(f"Successfully fetched AI document ({len(ai_doc_content)} chars) and chunks ({len(chunks_json_content)} chars) for tender {tender_id}.")
+                # Return both contents
+                return {
+                    "ai_document": ai_doc_content,
+                    "combined_chunks": chunks_json_content # Return as JSON string
+                }
             else:
-                logger.warning(f"Failed to fetch content from SAS URL for tender {tender_id}")
-                # Return None, the route will handle the 404
-                return None
+                # Log which part failed
+                if ai_doc_content is None:
+                    logger.warning(f"Failed to fetch AI document content from SAS URL for tender {tender_id}")
+                if chunks_json_content is None:
+                     logger.warning(f"Failed to fetch chunks JSON content from SAS URL for tender {tender_id}")
+                return None # Let route handle 404
         else:
-            logger.warning(f"No SAS token found for AI document for tender {tender_id}")
-            # Return None, the route will handle the 404
-            return None
+            logger.warning(f"Missing SAS token(s) for AI document or chunks for tender {tender_id}")
+            return None # Let route handle 404
     except ValueError as ve:
          # If get_ai_documents raises ValueError (e.g., tender not found in DB)
          logger.warning(f"Could not find tender or documents for {tender_id}: {ve}")

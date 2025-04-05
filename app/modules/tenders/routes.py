@@ -58,25 +58,25 @@ async def get_ai_documents(
             detail=f"Error retrieving tender documents: {str(e)}"
         )
 
-@router.get("/ai-document-content/{tender_id}", response_class=PlainTextResponse)
-async def stream_ai_document_content(
+@router.get("/ai-document-content/{tender_id}", response_model=schemas.TenderDocumentContentResponse)
+async def get_ai_document_and_chunks_content(
     tender_id: str = Path(..., description="The hash identifier of the tender"),
     db: Session = Depends(get_db)
 ):
     """
-    Proxy endpoint to fetch and return the AI document content from Azure.
-    Returns the markdown content as plain text.
+    Proxy endpoint to fetch AI document markdown and combined chunks JSON content from Azure.
+    Returns both contents in a JSON payload.
     """
     try:
-        content = await services.get_ai_document_content_from_azure(tender_id, db)
-        if content is not None:
-            # Return content as plain text (markdown) with UTF-8 charset
-            return PlainTextResponse(content=content, media_type="text/markdown; charset=utf-8")
+        content_data = await services.get_ai_document_content_from_azure(tender_id, db)
+        if content_data:
+            # Return the dictionary containing both ai_document and combined_chunks
+            return content_data 
         else:
             # If service function returned None (not found or fetch failed), raise 404
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="AI document content not found or could not be retrieved."
+                detail="AI document content or chunks not found or could not be retrieved."
             )
     except HTTPException as http_exc: # Re-raise specific HTTP exceptions
         raise http_exc
