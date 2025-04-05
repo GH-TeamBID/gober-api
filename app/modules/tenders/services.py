@@ -17,6 +17,8 @@ from app.modules.tenders.queries_tender_detail import (query_core_template, quer
                                                         query_legal_documents, query_technical_documents, query_additional_documents,
                                                         query_lots)
 from app.modules.tenders.tender_helpers import parse_tender_detail
+import aiohttp
+import asyncio
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1330,3 +1332,62 @@ async def get_ai_tender_documents(tender_id: str, db: Session) -> schemas.Tender
     except Exception as e:
         logger.error(f"Error retrieving AI tender documents: {str(e)}")
         raise ValueError(f"Error retrieving AI tender documents: {str(e)}")
+
+async def _fetch_content_from_url(url: str) -> Optional[str]:
+    """Fetches text content from a given URL."""
+    if not url:
+        logger.warning("Attempted to fetch content from an empty URL.")
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Note: No ssl=False here. SAS URLs should use HTTPS correctly.
+            # Add timeout to prevent hanging indefinitely
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+                # Assuming markdown is UTF-8 encoded
+                content = await response.text(encoding='utf-8')
+                logger.debug(f"Successfully fetched content from {url[:100]}...")
+                return content
+    except aiohttp.ClientResponseError as http_err:
+        logger.error(f"HTTP error fetching content from URL {url[:100]}...: Status {http_err.status}, Message {http_err.message}")
+        return None
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout error fetching content from URL {url[:100]}...")
+        return None
+    except Exception as e:
+        logger.error(f"Generic error fetching content from URL {url[:100]}...: {e}", exc_info=True)
+        return None
+
+async def get_ai_document_content_from_azure(tender_id: str, db: Session) -> Optional[str]:
+    """Gets SAS token and fetches AI document content from Azure."""
+    logger.info(f"Attempting to fetch AI document content for tender ID: {tender_id}")
+    try:
+        # Use existing function to get metadata including SAS token
+        # This function already handles the DB lookup
+        ai_metadata = await get_ai_documents(tender_id, db)
+
+        if ai_metadata and ai_metadata.get("ai_doc_sas_token"):
+            sas_url = ai_metadata["ai_doc_sas_token"]
+            logger.info(f"Fetching AI content using SAS URL for tender {tender_id}")
+            content = await _fetch_content_from_url(sas_url)
+            if content is not None:
+                logger.info(f"Successfully fetched AI document content for tender {tender_id}. Length: {len(content)}")
+                return content
+            else:
+                logger.warning(f"Failed to fetch content from SAS URL for tender {tender_id}")
+                # Return None, the route will handle the 404
+                return None
+        else:
+            logger.warning(f"No SAS token found for AI document for tender {tender_id}")
+            # Return None, the route will handle the 404
+            return None
+    except ValueError as ve:
+         # If get_ai_documents raises ValueError (e.g., tender not found in DB)
+         logger.warning(f"Could not find tender or documents for {tender_id}: {ve}")
+         return None # Let route handle 404
+    except Exception as e:
+        # Log unexpected errors during the process
+        logger.error(f"Unexpected error getting AI document content for tender {tender_id}: {e}", exc_info=True)
+        raise # Re-raise for the route to handle as 500
+
+# --- End: Added functions for proxy ---
