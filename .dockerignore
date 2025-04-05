@@ -14,3 +14,5 @@ test.db
 .cursor/
 .pytest_cache/
 api-venv/
+app/modules/ai_tools/ai_summaries_pipeline/data
+app/modules/ai_tools/ai_summaries_pipeline/tests
