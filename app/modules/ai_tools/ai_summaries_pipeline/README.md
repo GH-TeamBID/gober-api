@@ -10,7 +10,7 @@ pip install -r requirements.txt
 
 # Set up environment variables
 export MARKER_API_KEY=your_marker_api_key
-export GEMINI_API_KEY=your_gemini_api_key
+export GOOGLE_AI_API_KEY=your_gemini_api_key
 
 # Run the pipeline
 python chunked_ai_summary_generator.py

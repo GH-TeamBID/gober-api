@@ -124,12 +124,12 @@ async def _process_document_summary_task(
         
         # Verify required settings
         marker_api_key = settings.MARKER_API_KEY
-        google_ai_api_key = settings.GEMINI_API_KEY
+        google_ai_api_key = settings.GOOGLE_AI_API_KEY
         
         if not marker_api_key:
             raise ValueError("MARKER_API_KEY environment variable not set")
         if not google_ai_api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not set")
+            raise ValueError("GOOGLE_AI_API_KEY environment variable not set")
         
         # Ensure directories exist
         _setup_directories()

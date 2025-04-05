@@ -35,7 +35,8 @@ class DocumentRetrievalService:
 
             # Create a new aiohttp session
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+                # Add ssl=False here to disable verification
+                async with session.get(url, ssl=False) as response:
                     response.raise_for_status()
 
                     # Simple filename extraction
