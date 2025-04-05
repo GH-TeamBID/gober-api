@@ -1211,27 +1211,37 @@ def parse_sparql_binding_to_tender_documents(binding: Dict[str, Any]) -> schemas
         documents=documents
     )
 
-async def get_ai_documents(tender_id):
-    with Session(engine) as session:
-        tender_document = session.query(TenderSummaryModel).filter_by(tender_uri=tender_id).first()
-        if tender_document:
-            return {
-                "url_document": tender_document.url_document,
-                "summary": tender_document.summary
-            }
-        else: return None
+async def get_ai_documents(tender_id: str, db: Session):
+    tender_document = db.query(TenderSummaryModel).filter_by(tender_uri=tender_id).first()
+    if tender_document:
+        sas_tokens = await get_ai_document_sas_token(tender_document.url_document)
+        ai_doc_sas_token = sas_tokens.get("ai_doc_sas_token")
+        combined_chunks_sas_token = sas_tokens.get("combined_chunks_sas_token")
+        return {
+            "url_document": tender_document.url_document,
+            "summary": tender_document.summary,
+            "ai_doc_sas_token": ai_doc_sas_token,
+            "combined_chunks_sas_token": combined_chunks_sas_token
+        }
+    else: return None
 
-async def get_ai_document_sas_token(tender_id: str) -> str:
+async def get_ai_document_sas_token(ai_document_url: str) -> str:
     """
     Get a SAS token for a specific tender document.
     """
-    try:
-        azure_client = AzureBlobStorageClient()
-        blob_path = f"{tender_id}.md"
-        return azure_client.generate_sas_url(blob_path)
-    except Exception as e:
-        logger.error(f"Error generating SAS token for tender {tender_id}: {str(e)}")
-        raise
+    azure_client = AzureBlobStorageClient()
+
+    ai_doc_path = f"{ai_document_url}ai_document.md"
+    combined_chunks_path = f"{ai_document_url}combined_chunks.json"
+
+    ai_doc_sas_token = azure_client.generate_sas_url(ai_doc_path)
+    combined_chunks_sas_token = azure_client.generate_sas_url(combined_chunks_path)
+
+    return {
+        "ai_doc_sas_token": ai_doc_sas_token,
+        "combined_chunks_sas_token": combined_chunks_sas_token
+    }
+
 
 async def get_ai_tender_documents(tender_id: str, db: Session) -> schemas.TenderDocumentResponse:
     """

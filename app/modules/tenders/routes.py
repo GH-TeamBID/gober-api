@@ -35,7 +35,8 @@ async def get_ai_document_sas_token(
 
 @router.get("/ai_documents/{tender_id}")
 async def get_ai_documents(
-    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve"),
+    db: Session = Depends(get_db)
 ):
     """
     Get the AI documents path and summary for a specific tender.
@@ -43,7 +44,7 @@ async def get_ai_documents(
     For the AI document content, use the /ai-tender-documents/{tender_id} endpoint.
     """
     try:
-        ai_documents = await services.get_ai_documents(tender_id)
+        ai_documents = await services.get_ai_documents(tender_id, db)
         if ai_documents is not None: return ai_documents
         else:
             raise HTTPException(
