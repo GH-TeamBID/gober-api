@@ -15,10 +15,8 @@ from .schemas import ProcurementDocument
 
 # Import AI pipeline components with better error handling
 try:
-    from .ai_summaries_pipeline.tender_repository import TenderRepository
     from .ai_summaries_pipeline.document_retrieval_service import DocumentRetrievalService
     from .ai_summaries_pipeline.document_conversion_service import DocumentConversionService
-    from .ai_summaries_pipeline.storage_service import StorageService
     from .ai_summaries_pipeline.ai_document_generator_service import AIDocumentGeneratorService
     from .ai_summaries_pipeline.ai_documents_processing_workflow import AIDocumentsProcessingWorkflow
     from .ai_summaries_pipeline.markdown_chunking_service import MarkdownChunkingService
@@ -138,18 +136,14 @@ async def _process_document_summary_task(
         # Initialize services
         try:
             # Initialize required services for the workflow
-            tender_repo = TenderRepository()
             doc_retrieval = DocumentRetrievalService(logger=logger)
             doc_conversion = DocumentConversionService(api_key=marker_api_key, logger=logger)
-            storage = StorageService()
             ai_generator = AIDocumentGeneratorService(api_key=google_ai_api_key)
 
             # Initialize workflow orchestrator
             workflow = AIDocumentsProcessingWorkflow(
-                tender_repository=tender_repo,
                 document_retrieval_service=doc_retrieval,
                 document_conversion_service=doc_conversion,
-                storage_service=storage,
                 ai_document_generator_service=ai_generator,
                 logger=logger
             )

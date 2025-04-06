@@ -20,16 +20,13 @@ class AIDocumentsProcessingWorkflow:
 
     def __init__(
         self,
-        tender_repository,
         document_retrieval_service,
         document_conversion_service,
-        storage_service,
         ai_document_generator_service,
         logger=None
     ):
         self.document_retrieval_service = document_retrieval_service
         self.document_conversion_service = document_conversion_service
-        self.storage_service = storage_service
         self.ai_document_generator_service = ai_document_generator_service
         self.markdown_chunking_service = MarkdownChunkingService(logger)
         self.chunk_reference_utility = ChunkReferenceUtility(logger)
