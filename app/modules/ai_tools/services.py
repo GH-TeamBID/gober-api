@@ -119,7 +119,7 @@ async def _process_document_summary_task(
         _update_task_status(task_id, "processing", 5)
 
         logger.info(f"Starting processing for task {task_id} (output_id: {output_id})")
-        logger.info(f"Settings, MarkerAPI: {settings.MARKER_API_KEY}, and Gemini API: {settings.GEMINI_API_KEY}")
+        logger.info(f"Settings, MarkerAPI: {settings.MARKER_API_KEY}, and Gemini API: {settings.GOOGLE_AI_API_KEY}")
 
 
         # Verify required settings
