@@ -131,9 +131,6 @@ async def _process_document_summary_task(
         if not google_ai_api_key:
             raise ValueError("GOOGLE_AI_API_KEY environment variable not set")
         
-        # Ensure directories exist
-        _setup_directories()
-        
         _update_task_status(task_id, "processing", 10, "Initializing services")
 
         # Initialize services
