@@ -14,15 +14,15 @@ class DocumentRetrievalService:
         self.logger = logger or logging.getLogger(__name__)
         self.temp_manager = TempFileManager(logger)
 
-    async def retrieve_document(self, url: str) -> Optional[Tuple[str, bytes]]:
+    async def retrieve_document(self, url: str) -> Optional[Tuple[str, bytes, str]]:
         """
-        Download PDF from URL and return filepath and content.
+        Download PDF from URL and return filepath, content, and original filename.
 
         Args:
             url: The URL to download the PDF from
 
         Returns:
-            Tuple containing: temporary filepath to the downloaded PDF and PDF content as bytes,
+            Tuple containing: temporary filepath to the downloaded PDF, PDF content as bytes, and original filename,
             or None if download failed
         """
         # Make sure url is a string
@@ -46,6 +46,13 @@ class DocumentRetrievalService:
                         content_disposition = response.headers['Content-Disposition']
                         if 'filename=' in content_disposition:
                             filename = content_disposition.split('filename=')[1].strip('"\'')
+                    else:
+                        # Try to extract from URL if no Content-Disposition
+                        url_path = url.split('?')[0]  # Remove query params
+                        if '/' in url_path:
+                            url_filename = url_path.split('/')[-1]
+                            if url_filename and '.' in url_filename:
+                                filename = url_filename
 
                     # Read content
                     content = await response.read()
@@ -55,14 +62,14 @@ class DocumentRetrievalService:
                         temp_file.write(content)
                         temp_file.flush()  # Ensure all data is written
 
-                        self.logger.info(f"PDF downloaded to temporary file {temp_path}")
-                        return (temp_path, content)
+                        self.logger.info(f"PDF downloaded to temporary file {temp_path}, original filename: {filename}")
+                        return (temp_path, content, filename)
 
         except Exception as e:
             self.logger.error(f"Error downloading PDF: {e}")
             return None
 
-    async def retrieve_documents(self, urls: Dict[str, str]) -> Dict[str, Tuple[str, bytes]]:
+    async def retrieve_documents(self, urls: Dict[str, str]) -> Dict[str, Tuple[str, bytes, str]]:
         """
         Download multiple PDFs from URLs in parallel
 
@@ -70,7 +77,7 @@ class DocumentRetrievalService:
             urls: Dictionary mapping document IDs to URLs
 
         Returns:
-            Dictionary mapping document IDs to tuples of (local filepath, content bytes)
+            Dictionary mapping document IDs to tuples of (local filepath, content bytes, original filename)
         """
         pdf_data = {}
         tasks = []

@@ -61,6 +61,18 @@ class AIDocumentsProcessingWorkflow:
         tender_folder = None
 
         try:
+            # Create a mapping of document IDs to titles for later use
+            # If document_id is empty, generate one
+            document_titles = {}
+            for i, doc in enumerate(documents):
+                doc_id = doc["document_id"]
+                if not doc_id:
+                    doc_id = f"doc_{i+1}"
+                    doc["document_id"] = doc_id
+                document_titles[doc_id] = doc["title"]
+
+            self.logger.info(f"Document titles: {document_titles}")
+
             # Step 1: Download documents
             self.logger.info("Step 1: Downloading documents")
             # Convert HttpUrl objects to strings
@@ -75,22 +87,33 @@ class AIDocumentsProcessingWorkflow:
 
             # Step 2: Convert documents to markdown
             self.logger.info("Step 2: Converting documents to markdown")
-            markdown_contents = await self.document_conversion_service.convert_documents(pdf_data)
+            markdown_results = await self.document_conversion_service.convert_documents(pdf_data)
 
-            if not markdown_contents:
+            if not markdown_results:
                 self.logger.error("Failed to convert any documents to markdown")
                 raise ValueError("Failed to convert any documents to markdown")
 
-            self.logger.info(f"Converted {len(markdown_contents)} documents to markdown")
+            self.logger.info(f"Converted {len(markdown_results)} documents to markdown")
+
+            # Extract markdown content from results
+            markdown_contents = {}
+            for doc_id, (content, _) in markdown_results.items():
+                markdown_contents[doc_id] = content
 
             # Step 3: Chunk documents
             self.logger.info("Step 3: Chunking documents")
 
-            # Create a dictionary mapping document IDs to their PDF paths
+            # Create a dictionary mapping document IDs to their PDF titles from document objects
             pdf_paths = {}
-            for doc_id, (temp_path, _) in pdf_data.items():
-                pdf_paths[doc_id] = temp_path
-
+            for doc_id in markdown_contents.keys():
+                # Use document title from original document objects
+                if doc_id in document_titles:
+                    pdf_paths[doc_id] = document_titles[doc_id]
+                else:
+                    # Fallback to original filename from the download if title not available
+                    _, _, original_filename = pdf_data[doc_id]
+                    pdf_paths[doc_id] = original_filename
+            self.logger.info(f"PDF paths: {pdf_paths}")
             # Process markdown contents directly
             document_chunks = self.markdown_chunking_service.chunk_markdown_contents(markdown_contents, pdf_paths)
 

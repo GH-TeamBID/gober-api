@@ -22,17 +22,17 @@ class DocumentConversionService:
         self.logger = logger or logging.getLogger(__name__)
         self.temp_manager = TempFileManager(logger)
 
-    async def convert_to_markdown(self, pdf_data: Tuple[str, bytes]) -> Optional[str]:
+    async def convert_to_markdown(self, pdf_data: Tuple[str, bytes, str]) -> Optional[Tuple[str, str]]:
         """
         Convert PDF to markdown using the Marker API
 
         Args:
-            pdf_data: Tuple containing (temp file path, PDF content bytes)
+            pdf_data: Tuple containing (temp file path, PDF content bytes, original filename)
 
         Returns:
-            Markdown content as string if successful, None otherwise
+            Tuple of (Markdown content as string, original filename) if successful, None otherwise
         """
-        temp_path, pdf_bytes = pdf_data
+        temp_path, pdf_bytes, original_filename = pdf_data
 
         try:
             # Import aiohttp here for async HTTP requests
@@ -98,7 +98,7 @@ class DocumentConversionService:
                                         # Get the markdown content
                                         markdown_content = status.get('markdown', '')
                                         self.logger.info(f"Successfully converted PDF to markdown")
-                                        return markdown_content
+                                        return (markdown_content, original_filename)
                                     elif status.get('status') == 'error':
                                         self.logger.error(f"Error processing PDF: {status.get('error')}")
                                         return None
@@ -113,15 +113,15 @@ class DocumentConversionService:
             self.logger.error(f"Error converting PDF to markdown: {e}")
             return None
 
-    async def convert_documents(self, pdf_data: Dict[str, Tuple[str, bytes]]) -> Dict[str, str]:
+    async def convert_documents(self, pdf_data: Dict[str, Tuple[str, bytes, str]]) -> Dict[str, Tuple[str, str]]:
         """
         Convert multiple PDFs to markdown in parallel
 
         Args:
-            pdf_data: Dictionary mapping document IDs to tuples of (temp file path, PDF content bytes)
+            pdf_data: Dictionary mapping document IDs to tuples of (temp file path, PDF content bytes, original filename)
 
         Returns:
-            Dictionary mapping document IDs to markdown content strings
+            Dictionary mapping document IDs to tuples of (markdown content, original filename)
         """
         markdown_contents = {}
         tasks = []
