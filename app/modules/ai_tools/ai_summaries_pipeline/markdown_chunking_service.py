@@ -37,10 +37,28 @@ class MarkdownChunkingService:
     # Regular expressions for detecting headers
     HEADER_PATTERN = re.compile(r'^(#{1,6})\s+(.+?)(?:\s+\{#([^}]+)\})?$', re.MULTILINE)
     PAGE_MARKER_PATTERN = re.compile(r'\{(\d+)\}------------------------------------------------')
+    # Pattern to match span tags - match any span tag regardless of its id attribute value
+    SPAN_TAG_PATTERN = re.compile(r'<span[^>]*>.*?</span>')
 
     def __init__(self, logger=None):
         """Initialize the chunking service"""
         self.logger = logger or logging.getLogger(__name__)
+
+    def _clean_title(self, title: str) -> str:
+        """
+        Clean title by removing span tags and other unwanted elements
+
+        Args:
+            title: The original title with potential span tags
+
+        Returns:
+            Cleaned title
+        """
+        # Remove span tags
+        cleaned_title = self.SPAN_TAG_PATTERN.sub('', title)
+        # Trim any extra whitespace
+        cleaned_title = cleaned_title.strip()
+        return cleaned_title
 
     def chunk_markdown_content(self, content: str, doc_id: str, pdf_path: str) -> DocumentChunk:
         """
@@ -150,9 +168,12 @@ class MarkdownChunkingService:
         Returns:
             Root document chunk containing all other chunks as children
         """
+        # Clean the entire content to remove span tags
+        cleaned_content = self.SPAN_TAG_PATTERN.sub('', content)
+
         # Create a root chunk for the entire document
         root_chunk = DocumentChunk(
-            text=content,
+            text=cleaned_content,
             metadata=ChunkMetadata(
                 chunk_id=f"doc_{doc_id}",
                 level=0,
@@ -161,12 +182,12 @@ class MarkdownChunkingService:
                 pdf_path=pdf_path,
                 page_number=None,
                 start_line=0,
-                end_line=len(content.split('\n'))
+                end_line=len(cleaned_content.split('\n'))
             )
         )
 
         # Extract hierarchical chunks
-        chunks = self._extract_hierarchical_chunks(content, pdf_path)
+        chunks = self._extract_hierarchical_chunks(cleaned_content, pdf_path)
 
         # Build chunk hierarchy - this must be done before assigning section IDs
         self._build_chunk_hierarchy(chunks, root_chunk)
@@ -237,6 +258,8 @@ class MarkdownChunkingService:
             if header_match:
                 level = len(header_match.group(1))  # Number of # characters
                 title = header_match.group(2).strip()
+                # Clean the title by removing span tags
+                title = self._clean_title(title)
                 headers.append({
                     'level': level,
                     'title': title,
@@ -257,6 +280,9 @@ class MarkdownChunkingService:
 
             # Extract text for this chunk
             chunk_text = '\n'.join(lines[start_line - 1:end_line])
+
+            # Clean the chunk text by removing span tags
+            chunk_text = self.SPAN_TAG_PATTERN.sub('', chunk_text)
 
             # Create a unique ID for this chunk (temporary, refined later)
             chunk_id = f"chunk_{i}"
@@ -344,12 +370,15 @@ class MarkdownChunkingService:
         try:
             # Convert the chunk hierarchy to a dictionary
             def chunk_to_dict(chunk):
+                # Make sure title is clean before saving
+                clean_title = self._clean_title(chunk.metadata.title)
+
                 result = {
                     'text': chunk.text,
                     'metadata': {
                         'chunk_id': chunk.metadata.chunk_id,
                         'level': chunk.metadata.level,
-                        'title': chunk.metadata.title,
+                        'title': clean_title,
                         'parent_id': chunk.metadata.parent_id,
                         'pdf_path': chunk.metadata.pdf_path,
                         'page_number': chunk.metadata.page_number,
@@ -391,13 +420,16 @@ class MarkdownChunkingService:
         flat_chunks = []
 
         def traverse_chunks(chunk):
+            # Make sure title is clean
+            clean_title = self._clean_title(chunk.metadata.title)
+
             # Add the current chunk
             flat_chunks.append({
                 'text': chunk.text,
                 'metadata': {
                     'chunk_id': chunk.metadata.chunk_id,
                     'level': chunk.metadata.level,
-                    'title': chunk.metadata.title,
+                    'title': clean_title,
                     'parent_id': chunk.metadata.parent_id,
                     'pdf_path': chunk.metadata.pdf_path,
                     'page_number': chunk.metadata.page_number,
