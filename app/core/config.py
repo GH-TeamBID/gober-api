@@ -45,8 +45,8 @@ class Settings(BaseSettings):
 
     # AI settings
     GEMINI_API_ENDPOINT: str = Field(default="your-gemini-api-endpoint", env="GEMINI_API_ENDPOINT")
-    GEMINI_API_KEY: str = Field(default="your-gemini-api-key", env="GEMINI_API_KEY")
-
+    GOOGLE_AI_API_KEY: str = Field(default="your-gemini-api-key", env="GOOGLE_AI_API_KEY")
+    
     # Neptune settings
     AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
     NEPTUNE_IAM_ROLE_ARN: str = os.getenv("NEPTUNE_IAM_ROLE_ARN", "arn:aws:iam::123456789012:role/NeptuneRole")
