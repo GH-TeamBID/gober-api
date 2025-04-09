@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import json
 
@@ -333,8 +333,8 @@ class MarkdownChunkingService:
 
             if parent_stack:
                 parent_chunk = parent_stack[-1][1]
-            chunk.metadata.parent_id = parent_chunk.metadata.chunk_id
-            parent_chunk.children.append(chunk)
+                chunk.metadata.parent_id = parent_chunk.metadata.chunk_id
+                parent_chunk.children.append(chunk)
 
             # Add current chunk to parent stack
             parent_stack.append((chunk_level, chunk))

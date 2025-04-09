@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Path, Body, Query, Request
+from fastapi.responses import PlainTextResponse
 from app.modules.tenders import schemas, services
 from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
@@ -55,6 +56,36 @@ async def get_ai_documents(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving tender documents: {str(e)}"
+        )
+
+@router.get("/ai-document-content/{tender_id}", response_model=schemas.TenderDocumentContentResponse)
+async def get_ai_document_and_chunks_content(
+    tender_id: str = Path(..., description="The hash identifier of the tender"),
+    db: Session = Depends(get_db)
+):
+    """
+    Proxy endpoint to fetch AI document markdown and combined chunks JSON content from Azure.
+    Returns both contents in a JSON payload.
+    """
+    try:
+        content_data = await services.get_ai_document_content_from_azure(tender_id, db)
+        if content_data:
+            # Return the dictionary containing both ai_document and combined_chunks
+            return content_data 
+        else:
+            # If service function returned None (not found or fetch failed), raise 404
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI document content or chunks not found or could not be retrieved."
+            )
+    except HTTPException as http_exc: # Re-raise specific HTTP exceptions
+        raise http_exc
+    except Exception as e:
+        # Catch-all for unexpected errors from the service layer
+        logger.error(f"Error proxying AI document content for {tender_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve AI document content: {str(e)}"
         )
 
 @router.get("/ai-tender-documents/{tender_id}", response_model=schemas.TenderDocumentResponse)

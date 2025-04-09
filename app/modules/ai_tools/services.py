@@ -19,8 +19,6 @@ try:
     from .ai_summaries_pipeline.document_conversion_service import DocumentConversionService
     from .ai_summaries_pipeline.ai_document_generator_service import AIDocumentGeneratorService
     from .ai_summaries_pipeline.ai_documents_processing_workflow import AIDocumentsProcessingWorkflow
-    from .ai_summaries_pipeline.markdown_chunking_service import MarkdownChunkingService
-    from .ai_summaries_pipeline.chunk_reference_utility import ChunkReferenceUtility
 
     AI_PIPELINE_AVAILABLE = True
 except ImportError as e:
@@ -39,7 +37,7 @@ async def process_document_summary(
     output_id: Optional[str] = None,
     regenerate: bool = False,
     questions: Optional[List[str]] = None,
-    background_tasks: Optional[BackgroundTasks] = None,
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> str:
     """
     Start processing a document summary in the background
@@ -120,7 +118,6 @@ async def _process_document_summary_task(
 
         logger.info(f"Starting processing for task {task_id} (output_id: {output_id})")
         logger.info(f"Settings, MarkerAPI: {settings.MARKER_API_KEY}, and Gemini API: {settings.GOOGLE_AI_API_KEY}")
-
 
         # Verify required settings
         marker_api_key = settings.MARKER_API_KEY

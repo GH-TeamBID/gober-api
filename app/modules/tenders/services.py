@@ -12,11 +12,10 @@ from app.modules.tenders.models import UserTender as UserTenderModel, TenderDocu
 from sqlalchemy.orm import Session
 from app.core.database import engine
 from app.core.utils.azure_blob_client import AzureBlobStorageClient
-from app.modules.tenders.queries_tender_detail import (query_core_template, query_identifier, query_contracting_entity, query_monetary_values,
-                                                        query_contractual_terms_and_location, query_cpvs, query_submission_terms,
-                                                        query_legal_documents, query_technical_documents, query_additional_documents,
-                                                        query_lots)
+from app.modules.tenders.queries_tender_detail import query_core_template, query_identifier, query_contracting_entity, query_monetary_values, query_contractual_terms_and_location, query_cpvs, query_submission_terms, query_legal_documents, query_technical_documents, query_additional_documents, query_lots
 from app.modules.tenders.tender_helpers import parse_tender_detail
+import aiohttp
+import asyncio
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1330,3 +1329,73 @@ async def get_ai_tender_documents(tender_id: str, db: Session) -> schemas.Tender
     except Exception as e:
         logger.error(f"Error retrieving AI tender documents: {str(e)}")
         raise ValueError(f"Error retrieving AI tender documents: {str(e)}")
+
+async def _fetch_content_from_url(url: str) -> Optional[str]:
+    """Fetches text content from a given URL."""
+    if not url:
+        logger.warning("Attempted to fetch content from an empty URL.")
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Note: No ssl=False here. SAS URLs should use HTTPS correctly.
+            # Add timeout to prevent hanging indefinitely
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+                # Assuming markdown is UTF-8 encoded
+                content = await response.text(encoding='utf-8')
+                logger.debug(f"Successfully fetched content from {url[:100]}...")
+                return content
+    except aiohttp.ClientResponseError as http_err:
+        logger.error(f"HTTP error fetching content from URL {url[:100]}...: Status {http_err.status}, Message {http_err.message}")
+        return None
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout error fetching content from URL {url[:100]}...")
+        return None
+    except Exception as e:
+        logger.error(f"Generic error fetching content from URL {url[:100]}...: {e}", exc_info=True)
+        return None
+
+async def get_ai_document_content_from_azure(tender_id: str, db: Session) -> Optional[Dict[str, Any]]:
+    """Gets SAS tokens and fetches AI document markdown and chunks JSON content from Azure."""
+    logger.info(f"Attempting to fetch AI document and chunks content for tender ID: {tender_id}")
+    try:
+        # Use existing function to get metadata including SAS tokens
+        ai_metadata = await get_ai_documents(tender_id, db)
+
+        if ai_metadata and ai_metadata.get("ai_doc_sas_token") and ai_metadata.get("combined_chunks_sas_token"):
+            ai_doc_sas_url = ai_metadata["ai_doc_sas_token"]
+            chunks_sas_url = ai_metadata["combined_chunks_sas_token"]
+            
+            logger.info(f"Fetching AI content and chunks using SAS URLs for tender {tender_id}")
+            
+            # Fetch both contents concurrently
+            ai_doc_content, chunks_json_content = await asyncio.gather(
+                _fetch_content_from_url(ai_doc_sas_url),
+                _fetch_content_from_url(chunks_sas_url)
+            )
+
+            if ai_doc_content is not None and chunks_json_content is not None:
+                logger.info(f"Successfully fetched AI document ({len(ai_doc_content)} chars) and chunks ({len(chunks_json_content)} chars) for tender {tender_id}.")
+                # Return both contents
+                return {
+                    "ai_document": ai_doc_content,
+                    "combined_chunks": chunks_json_content # Return as JSON string
+                }
+            else:
+                # Log which part failed
+                if ai_doc_content is None:
+                    logger.warning(f"Failed to fetch AI document content from SAS URL for tender {tender_id}")
+                if chunks_json_content is None:
+                     logger.warning(f"Failed to fetch chunks JSON content from SAS URL for tender {tender_id}")
+                return None # Let route handle 404
+        else:
+            logger.warning(f"Missing SAS token(s) for AI document or chunks for tender {tender_id}")
+            return None # Let route handle 404
+    except ValueError as ve:
+         # If get_ai_documents raises ValueError (e.g., tender not found in DB)
+         logger.warning(f"Could not find tender or documents for {tender_id}: {ve}")
+         return None # Let route handle 404
+    except Exception as e:
+        # Log unexpected errors during the process
+        logger.error(f"Unexpected error getting AI document content for tender {tender_id}: {e}", exc_info=True)
+        raise # Re-raise for the route to handle as 500

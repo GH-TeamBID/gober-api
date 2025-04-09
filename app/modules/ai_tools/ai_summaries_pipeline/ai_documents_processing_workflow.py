@@ -34,7 +34,6 @@ class AIDocumentsProcessingWorkflow:
         self.temp_manager = TempFileManager(logger)
         self.azure_client = AzureBlobStorageClient()
 
-
     async def process_tender(
         self,
         documents: List[Dict[str, Any]],  # List of ProcurementDocument objects

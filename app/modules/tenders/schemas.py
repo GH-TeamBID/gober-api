@@ -272,3 +272,8 @@ class TenderDocumentResponse(BaseModel):
     summary: Optional[str] = None
     ai_document: str
     combined_chunks: str
+
+class TenderDocumentContentResponse(BaseModel):
+    """Response model for the ai-document-content/{tender_id} endpoint that returns both document and chunks"""
+    ai_document: str
+    combined_chunks: str

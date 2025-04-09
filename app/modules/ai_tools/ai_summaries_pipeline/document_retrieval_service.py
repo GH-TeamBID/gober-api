@@ -1,10 +1,8 @@
 import os
 import logging
-import requests
 import asyncio
 import aiohttp
 from typing import Dict, Optional, Tuple
-import tempfile
 from .temp_file_manager import TempFileManager
 
 class DocumentRetrievalService:
@@ -37,7 +35,12 @@ class DocumentRetrievalService:
 
             # Create a new aiohttp session
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+                # WARNING: Disabling SSL verification is insecure and should only be used
+                # if you trust the source and understand the risks (e.g., MITM attacks).
+                # This is added to handle potential self-signed or misconfigured certs
+                # on specific government portals like contrataciondelestado.es.
+                # Consider more secure alternatives (custom CA bundle) for production.
+                async with session.get(url, ssl=False) as response:
                     response.raise_for_status()
 
                     # Extract filename from Content-Disposition if available

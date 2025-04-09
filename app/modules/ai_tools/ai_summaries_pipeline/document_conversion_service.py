@@ -1,8 +1,6 @@
 import os
-import requests
 import logging
 import asyncio
-import io
 from typing import Optional, Dict, Tuple, Any
 from .temp_file_manager import TempFileManager
 
@@ -52,7 +50,6 @@ class DocumentConversionService:
             }
 
             # Create a temporary file with the PDF content
-            # This mimics the behavior of the previous working implementation
             with self.temp_manager.temp_file(suffix='.pdf') as (temp_file_path, temp_file):
                 # Write the bytes to the temporary file
                 temp_file.write(pdf_bytes)
@@ -62,7 +59,7 @@ class DocumentConversionService:
                 self.logger.info(f"Submitting PDF for conversion using temporary file...")
 
                 async with aiohttp.ClientSession() as session:
-                    # Use file-based upload like the old implementation
+                    # Use file-based upload
                     with open(temp_file_path, 'rb') as f:
                         form_data = aiohttp.FormData()
                         form_data.add_field('file',
