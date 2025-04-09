@@ -1,11 +1,12 @@
 # app/modules/auth/routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from app.modules.auth import schemas, services, models
 from app.core.database import get_db
 from typing import List
 from app.core.config import settings
+from app.modules.search import services as SearchService
 
 router = APIRouter()
 
@@ -290,7 +291,7 @@ async def delete_criteria(
     
     return criteria
 
-@router.get("/cpv-codes", response_model=schemas.PaginatedCpvCodeResponse)
+@router.get("/cpv-codes-old", response_model=schemas.PaginatedCpvCodeResponse)
 async def search_cpv_codes(
     code: str = Query(None, description="Filter by CPV code"),
     description: str = Query(None, description="Filter by description"),
@@ -327,6 +328,22 @@ async def search_cpv_codes(
     )
     
     return result
+
+@router.get("/cpv-codes") #, response_model=schemas.PaginatedCpvCodeResponse
+async def search_cpv_codes(
+    request: Request
+    #current_user: models.User = Depends(services.get_current_user)
+):
+    params = dict(request.query_params)
+    if 'code' not in params and 'description' not in params: 
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="match param required"
+        )
+    params['match'] = params['code'] if 'code' in params else params['description']
+    result = SearchService.do_search('cpvs', params)
+    
+    return {**result}
 
 @router.get("/public/cpv-codes", response_model=schemas.PaginatedCpvCodeResponse)
 async def public_search_cpv_codes(
