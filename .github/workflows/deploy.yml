@@ -1,0 +1,32 @@
+name: Build, Push and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Hacer checkout del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Construir la imagen Docker
+      - name: Build Docker image
+        run: |
+          docker build -t ghcr.io/gh-teambid/gober-api:latest .
+
+      # 3. Iniciar sesión en GHCR y empujar la imagen
+      - name: Push image to GHCR
+        env:
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          echo $GHCR_TOKEN | docker login ghcr.io -u $GHCR_USER --password-stdin
+          docker push ghcr.io/gh-teambid/gober-api:latest
+
+      # 4. Llamar al Deploy Hook de Render para actualizar el despliegue
+      - name: Trigger Render Deploy Hook
+        run: curl -X POST "https://api.render.com/deploy/srv-cvqjj42dbo4c73djo790?key=oRppnzpluxs"
