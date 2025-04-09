@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request
 from app.core.utils.meili import MeiliClient, MeiliHelpers
 from datetime import datetime
+from sqlalchemy.orm import Session
+from app.core.database import engine
+from app.modules.auth.models import CpvCode
 
 router = APIRouter()
 
@@ -84,5 +87,91 @@ def set_filters():
         tenders_search = MeiliClient('tenders')
         filters = tenders_search.get_filters()
         return {'filters': filters}
+    except Exception as e:
+        ErrorResponse(500, f"{e}")
+
+
+@router.post("/cpvs")
+def load_cpvs():
+    try:
+        tenders_search = MeiliClient('cpvs')
+        #task = tenders_search.get_client().index('cpvs').update_searchable_attributes(["*", "code"]) #"description", "es_description"
+        documents = []
+        with Session(engine) as session:
+            cpvs = session.query(CpvCode).all()
+        for cpv in cpvs:
+            documents.append(
+                {
+                    "id": cpv.code,
+                    "code": f"{cpv.code}",
+                    "description": cpv.description,
+                    "es_description": cpv.es_description
+                }
+            )
+        tenders_search.add_documents(documents)
+        return {'message': "Cpvs loaded"}
+        return {'documents': documents, 'searchables': tenders_search.get_index('cpvs').get_searchable_attributes()}
+        documents = [
+            {
+                "id": "09211640",
+                "code": "09211640",
+                "description": "Electrical insulating oils",
+                "es_description": "Aceites para aislamiento eléctrico"
+            },
+            {
+                "id": "14764000",
+                "code": "14764000",
+                "description": "Thallium",
+                "es_description": "Talio"
+            },
+            {
+                "id": "15131640",
+                "code": "15131640",
+                "description": "Beefburgers",
+                "es_description": "Hamburguesas de carne de vaca"
+            },
+            {
+                "id": "15331464",
+                "code": "15331464",
+                "description": "Canned whole beans",
+                "es_description": "Judías verdes enteras enlatadas"
+            },
+            {
+                "id": "15864000",
+                "code": "15864000",
+                "description": "Preparations of tea or maté",
+                "es_description": "Preparaciones de té o de mate"
+            },
+            {
+                "id": "15864100",
+                "code": "15864100",
+                "description": "Teabags",
+                "es_description": "Bolsitas de té"
+            },
+            {
+                "id": "16400000",
+                "code": "16400000",
+                "description": "Spraying machinery for agriculture or horticulture",
+                "es_description": "Aparatos de pulverizar para la agricultura o la horticultura"
+            },
+            {
+                "id": "16640000",
+                "code": "16640000",
+                "description": "Bee-keeping machinery",
+                "es_description": "Máquinas y aparatos para la apicultura"
+            },
+            {
+                "id": "19640000",
+                "code": "19640000",
+                "description": "Polythene waste and refuse sacks and bags",
+                "es_description": "Sacos y bolsas de polietileno para residuos"
+            },
+            {
+                "id": "24212640",
+                "code": "24212640",
+                "description": "Copper hydroxide",
+                "es_description": "Hidróxido de cobre"
+            }
+        ]
     except Exception as e:
         ErrorResponse(500, f"{e}")
