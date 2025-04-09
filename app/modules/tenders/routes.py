@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Path, Body, Query, Request
+from fastapi.responses import PlainTextResponse
 from app.modules.tenders import schemas, services
 from typing import Optional, List, Dict, Any
 from app.modules.auth.services import get_current_user
 from app.modules.auth.models import User
 from sqlalchemy.orm import Session
-from app.core.database import get_db    
+from app.core.database import get_db
 import logging
 from app.modules.search import services as SearchService
 from datetime import datetime, timezone
@@ -35,13 +36,18 @@ async def get_ai_document_sas_token(
 
 @router.get("/ai_documents/{tender_id}")
 async def get_ai_documents(
-    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve"),
+    db: Session = Depends(get_db)
 ):
-    """  """
+    """
+    Get the AI documents path and summary for a specific tender.
+    This endpoint does not retrieve the AI document content, only the path and summary.
+    For the AI document content, use the /ai-tender-documents/{tender_id} endpoint.
+    """
     try:
-        ai_documents = await services.get_ai_documents(tender_id)
+        ai_documents = await services.get_ai_documents(tender_id, db)
         if ai_documents is not None: return ai_documents
-        else: 
+        else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Tender document not found"
@@ -52,13 +58,70 @@ async def get_ai_documents(
             detail=f"Error retrieving tender documents: {str(e)}"
         )
 
+@router.get("/ai-document-content/{tender_id}", response_model=schemas.TenderDocumentContentResponse)
+async def get_ai_document_and_chunks_content(
+    tender_id: str = Path(..., description="The hash identifier of the tender"),
+    db: Session = Depends(get_db)
+):
+    """
+    Proxy endpoint to fetch AI document markdown and combined chunks JSON content from Azure.
+    Returns both contents in a JSON payload.
+    """
+    try:
+        content_data = await services.get_ai_document_content_from_azure(tender_id, db)
+        if content_data:
+            # Return the dictionary containing both ai_document and combined_chunks
+            return content_data 
+        else:
+            # If service function returned None (not found or fetch failed), raise 404
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="AI document content or chunks not found or could not be retrieved."
+            )
+    except HTTPException as http_exc: # Re-raise specific HTTP exceptions
+        raise http_exc
+    except Exception as e:
+        # Catch-all for unexpected errors from the service layer
+        logger.error(f"Error proxying AI document content for {tender_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve AI document content: {str(e)}"
+        )
+
+@router.get("/ai-tender-documents/{tender_id}", response_model=schemas.TenderDocumentResponse)
+async def get_ai_tender_documents(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve the AI document and combined chunks for a specific tender.
+
+    Args:
+        tender_id: The unique identifier hash for the tender
+
+    Returns:
+        The AI document content, summary, and combined chunks as JSON
+    """
+    try:
+        return await services.get_ai_tender_documents(tender_id, db)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving AI tender documents: {str(e)}"
+        )
+
 @router.get("/documents/{tender_id}", response_model=schemas.TenderDocuments)
 async def get_tender_documents(
     tender_id: str = Path(..., description="The URI or hash identifier of the tender to retrieve")
 ):
     """
     Get the documents for a specific tender.
-    
+
     This endpoint retrieves the documents for a specific tender from the RDF graph database.
     The tender is identified by either its full URI or its hash identifier.
     """
@@ -71,45 +134,79 @@ async def get_tender_documents(
         )
 
 @router.get("/") #, response_model=schemas.PaginatedTenderResponse
-async def get_tenders(request: Request):
+async def get_tenders(
+    request: Request,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(10, ge=1, le=100, description="Number of items to return"),
+    is_saved: bool = Query(False, description="Filter for saved tenders only"),
+    match: Optional[str] = Query(None, description="Search query string"),
+    sort_field: Optional[str] = Query(None, description="Field to sort by"),
+    sort_direction: Optional[str] = Query(None, description="Sort direction (asc/desc)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
-    Get a paginated list of tenders with optional search and filters.
+    Get a list of tenders with optional search, filters, sorting, and offset/limit.
     
     This endpoint retrieves a list of tender previews from the search index,
-    with pagination, filtering and search functionality.
+    with offset/limit pagination, filtering, search, and sorting functionality.
     
     Query parameters:
-    - **page**: Page number (starting from 1)
-    - **size**: Number of items per page (default: 10, max: 100)
+    - **offset**: Number of items to skip (default: 0)
+    - **limit**: Number of items per page (default: 10, max: 100)
+    - **is_saved**: Filter for saved tenders only (default: False)
     - **match**: Search query string to match against tender content
-    
+    - **sort_field**: Field to sort by (e.g., 'submission_date')
+    - **sort_direction**: Sort direction ('asc' or 'desc')
+
     Filters (provided in request body):
     - **filters**: Array of filter objects with name/value pairs
-    
+
     Returns:
-        PaginatedTenderResponse: Paginated list of tender previews
+        PaginatedTenderResponse: List of tender previews with total count and offset/limit info
     """
     try:
-        # Extract URL parameters
-        params = dict(request.query_params)
-        
+        # Prepare parameters for search service
+        search_params = {
+            'match': match,
+            'sort_field': sort_field,
+            'sort_direction': sort_direction,
+            'offset': offset,
+            'limit': limit
+        }
+        # Remove None values to avoid sending empty params
+        search_params = {k: v for k, v in search_params.items() if v is not None}
+
         # Check if there's a body with filters
         body_filters = None
         if request.method in ["GET", "POST"]:
             try:
-                # Try to parse request body for filters
                 body = await request.json()
                 if "filters" in body:
                     body_filters = body["filters"]
-                    # Log the filters received in the body
                     print(f"Received filters in body: {body_filters}")
             except Exception as e:
-                # No body or invalid body, which is fine for GET requests
                 print(f"No body or invalid body format: {str(e)}")
         
-        # Convert the params to proper format for MeiliSearch
-        result = SearchService.do_search('tenders', params, body_filters)
+        # Fetch saved tender URIs if requested
+        saved_tender_uris: Optional[List[str]] = None
+        if is_saved:
+            logger.info(f"Fetching saved tenders for user {current_user.id}")
+            saved_tender_uris = services.get_user_saved_tenders_uris(db, str(current_user.id))
+            logger.info(f"Found {len(saved_tender_uris)} saved tender URIs.")
+            # If no saved tenders, return empty list immediately? Or let search handle it?
+            # Let search handle it for consistency, it might return 0 results.
         
+        # Call the search service with updated parameters
+        # Assuming SearchService.do_search accepts offset, limit, and saved_tender_uris
+        result = SearchService.do_search(
+            index_name='tenders', 
+            params=search_params, 
+            body_filters=body_filters,
+            saved_tender_uris=saved_tender_uris # Pass the list of saved URIs
+        )
+        
+        # Format the results (same as before)
         items = [
             {
                 "tender_hash": tender["id"],
@@ -128,37 +225,77 @@ async def get_tenders(request: Request):
                 "contract_type": tender["contract_type"],
                 "cpv_categories": tender["cps"]
             }
-            for tender in result['items']
+            for tender in result.get('items', []) # Use .get for safety
         ]
-        result['items'] = items
-        return {**result}
+        
+        # Reconstruct the response, assuming SearchService returns total, offset, limit
+        # Adapt this based on the actual return value of SearchService.do_search
+        response_data = {
+            "items": items,
+            "total": result.get("total", 0),
+            "offset": result.get("offset", offset),
+            "limit": result.get("limit", limit),
+            # Calculate has_next based on offset, limit, and total
+            "has_next": (result.get("offset", offset) + len(items)) < result.get("total", 0),
+            "has_prev": result.get("offset", offset) > 0 # has_prev is based on offset
+            # Keep debug info if available
+        }
+        if 'debug' in result:
+             response_data['debug'] = result['debug']
+
+        return response_data
+
     except Exception as e:
+        logger.error(f"Error retrieving tenders: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving tenders: {str(e)}"
         )
 
 @router.post("/") 
-async def post_tenders(request: Request):
+async def post_tenders(
+    request: Request,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(10, ge=1, le=100, description="Number of items to return"),
+    is_saved: bool = Query(False, description="Filter for saved tenders only"),
+    match: Optional[str] = Query(None, description="Search query string"),
+    sort_field: Optional[str] = Query(None, description="Field to sort by"),
+    sort_direction: Optional[str] = Query(None, description="Sort direction (asc/desc)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
-    Get a paginated list of tenders with filters in request body.
+    Get a list of tenders with filters in request body and offset/limit.
     
     This endpoint provides the same functionality as GET /tenders but 
     allows filters to be provided in the request body.
-    
+
     Query parameters:
-    - **page**: Page number (starting from 1)
-    - **size**: Number of items per page (default: 10, max: 100)
+    - **offset**: Number of items to skip (default: 0)
+    - **limit**: Number of items per page (default: 10, max: 100)
+    - **is_saved**: Filter for saved tenders only (default: False)
     - **match**: Search query string to match against tender content
-    
+    - **sort_field**: Field to sort by
+    - **sort_direction**: Sort direction ('asc' or 'desc')
+
     Request body:
     - **filters**: Array of filter objects with name/value pairs
-    
+
     Returns:
-        PaginatedTenderResponse: Paginated list of tender previews
+        PaginatedTenderResponse: List of tender previews
     """
-    # Reuse the GET endpoint logic
-    return await get_tenders(request)
+    # Reuse the GET endpoint logic by calling it directly
+    return await get_tenders(
+        request=request, 
+        offset=offset, 
+        limit=limit, 
+        is_saved=is_saved,
+        match=match,
+        sort_field=sort_field,
+        sort_direction=sort_direction,
+        db=db, 
+        current_user=current_user
+    )
 
 @router.get("/detail/{tender_id}", response_model=schemas.TenderResponse)
 async def get_tender_detail(
@@ -166,18 +303,18 @@ async def get_tender_detail(
 ):
     """
     Get detailed information about a specific tender.
-    
+
     This endpoint retrieves full details of a tender procedure from the RDF graph database.
     The tender is identified by either its full URI or its hash identifier.
-    
+
     - **tender_id**: A string representing either the full URI of the tender or its hash identifier
-    
+
     Returns:
         TenderResponse: The complete tender details
     """
     # Direct print for debugging router execution
     print(f"ROUTER DIAGNOSTIC: Starting get_tender_detail for ID: {tender_id}")
-    
+
     try:
         tender = await services.get_tender_detail(tender_id)
         return schemas.TenderResponse(
@@ -212,7 +349,7 @@ async def save_tender(
             tender_uri=tender_data.tender_uri,
             situation=tender_data.situation
         )
-        
+
         user_tender = services.save_tender_for_user(
             db=db,
             tender_data=user_tender_data
@@ -232,28 +369,28 @@ async def unsave_tender(
     """Remove a saved tender for the current user"""
     try:
         logger.debug(f"Attempting to unsave tender: {request_data.tender_uri} for user: {current_user.id}")
-        
+
         result = services.unsave_tender_for_user(
             db=db,
             user_id=str(current_user.id),
             tender_uri=request_data.tender_uri
         )
-        
+
         logger.debug(f"Unsave result: {result}")
-        
+
         if not result:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Tender not found in saved list"
             )
-            
+
         # For a 204 No Content response, return None
         return None
-        
+
     except ValueError as e:
         logger.error(f"Value error in unsave_tender: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
@@ -262,7 +399,7 @@ async def unsave_tender(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error unsaving tender: {str(e)}"
         )
 
@@ -291,7 +428,7 @@ async def create_or_update_summary(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions to create or update summaries"
         )
-    
+
     try:
         summary = await services.create_or_update_tender_summary(
             tender_uri=summary_data.tender_uri,
@@ -309,13 +446,13 @@ async def get_tender_preview(
 ):
     """
     Get a preview of a specific tender.
-    
+
     This endpoint retrieves a preview of a tender with basic information like title,
     description, budget, organization, etc. The tender is identified by either its
     full URI or its hash identifier.
-    
+
     - **tender_id**: A string representing either the full URI of the tender or its hash identifier
-    
+
     Returns:
         TenderPreview: The tender preview
     """
@@ -339,12 +476,12 @@ def get_tender_summary(
 ):
     """
     Get the summary for a specific tender.
-    
+
     This endpoint retrieves the summary of a tender from the database.
     The tender is identified by either its full URI or its hash identifier.
-    
+
     - **tender_id**: A string representing either the full URI of the tender or its hash identifier
-    
+
     Returns:
         TenderSummary: The tender summary
     """

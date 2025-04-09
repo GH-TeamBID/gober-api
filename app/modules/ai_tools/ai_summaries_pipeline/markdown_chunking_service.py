@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import json
 
@@ -37,10 +37,48 @@ class MarkdownChunkingService:
     # Regular expressions for detecting headers
     HEADER_PATTERN = re.compile(r'^(#{1,6})\s+(.+?)(?:\s+\{#([^}]+)\})?$', re.MULTILINE)
     PAGE_MARKER_PATTERN = re.compile(r'\{(\d+)\}------------------------------------------------')
+    # Pattern to match span tags - match any span tag regardless of its id attribute value
+    SPAN_TAG_PATTERN = re.compile(r'<span[^>]*>.*?</span>')
 
     def __init__(self, logger=None):
         """Initialize the chunking service"""
         self.logger = logger or logging.getLogger(__name__)
+
+    def _clean_title(self, title: str) -> str:
+        """
+        Clean title by removing span tags and other unwanted elements
+
+        Args:
+            title: The original title with potential span tags
+
+        Returns:
+            Cleaned title
+        """
+        # Remove span tags
+        cleaned_title = self.SPAN_TAG_PATTERN.sub('', title)
+        # Trim any extra whitespace
+        cleaned_title = cleaned_title.strip()
+        return cleaned_title
+
+    def chunk_markdown_content(self, content: str, doc_id: str, pdf_path: str) -> DocumentChunk:
+        """
+        Process markdown content string and create a hierarchical structure of chunks.
+
+        Args:
+            content: Markdown content as string
+            doc_id: Document identifier
+            pdf_path: Path to the original PDF file or identifier
+
+        Returns:
+            Root chunk with hierarchical structure
+        """
+        try:
+            # Create the document root chunk
+            root_chunk = self._process_markdown_content(content, doc_id, pdf_path)
+            return root_chunk
+        except Exception as e:
+            self.logger.error(f"Error chunking markdown content for {doc_id}: {e}")
+            return None
 
     def chunk_markdown_file(self, markdown_path: str, pdf_path: str) -> DocumentChunk:
         """
@@ -58,9 +96,11 @@ class MarkdownChunkingService:
             with open(markdown_path, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Create the document root chunk
-            root_chunk = self._process_markdown_content(content, markdown_path, pdf_path)
-            return root_chunk
+            # Use the filename as doc_id
+            doc_id = os.path.basename(markdown_path).split('.')[0]
+
+            # Use the content-based method
+            return self.chunk_markdown_content(content, doc_id, pdf_path)
 
         except Exception as e:
             self.logger.error(f"Error chunking markdown file {markdown_path}: {e}")
@@ -91,38 +131,63 @@ class MarkdownChunkingService:
 
         return document_chunks
 
-    def _process_markdown_content(self, content: str, markdown_path: str, pdf_path: str) -> DocumentChunk:
+    def chunk_markdown_contents(self, markdown_contents: Dict[str, str], pdf_paths: Dict[str, str]) -> Dict[str, DocumentChunk]:
+        """
+        Process multiple markdown content strings and create hierarchical structures.
+
+        Args:
+            markdown_contents: Dictionary mapping document IDs to markdown content strings
+            pdf_paths: Dictionary mapping document IDs to PDF paths
+
+        Returns:
+            Dictionary mapping document IDs to root chunks
+        """
+        document_chunks = {}
+
+        for doc_id, content in markdown_contents.items():
+            pdf_path = pdf_paths.get(doc_id)
+            if not pdf_path:
+                self.logger.warning(f"No PDF path found for document {doc_id}")
+                continue
+
+            root_chunk = self.chunk_markdown_content(content, doc_id, pdf_path)
+            if root_chunk:
+                document_chunks[doc_id] = root_chunk
+
+        return document_chunks
+
+    def _process_markdown_content(self, content: str, doc_id: str, pdf_path: str) -> DocumentChunk:
         """
         Process markdown content and extract hierarchical chunks
 
         Args:
             content: Markdown content
-            markdown_path: Path to the markdown file
+            doc_id: Document identifier
             pdf_path: Path to the original PDF file
 
         Returns:
             Root document chunk containing all other chunks as children
         """
-        # Create a root chunk for the entire document
-        filename = os.path.basename(markdown_path)
-        doc_id = filename.split('.')[0]  # Use filename without extension as document ID
+        # Clean the entire content to remove span tags
+        cleaned_content = self.SPAN_TAG_PATTERN.sub('', content)
 
+        # Create a root chunk for the entire document
         root_chunk = DocumentChunk(
-            text=content,
+            text=cleaned_content,
             metadata=ChunkMetadata(
                 chunk_id=f"doc_{doc_id}",
                 level=0,
-                title=filename,
+                title=doc_id,
                 parent_id=None,
                 pdf_path=pdf_path,
                 page_number=None,
                 start_line=0,
-                end_line=len(content.split('\n'))
+                end_line=len(cleaned_content.split('\n'))
             )
         )
 
         # Extract hierarchical chunks
-        chunks = self._extract_hierarchical_chunks(content, pdf_path)
+        chunks = self._extract_hierarchical_chunks(cleaned_content, pdf_path)
 
         # Build chunk hierarchy - this must be done before assigning section IDs
         self._build_chunk_hierarchy(chunks, root_chunk)
@@ -193,6 +258,8 @@ class MarkdownChunkingService:
             if header_match:
                 level = len(header_match.group(1))  # Number of # characters
                 title = header_match.group(2).strip()
+                # Clean the title by removing span tags
+                title = self._clean_title(title)
                 headers.append({
                     'level': level,
                     'title': title,
@@ -200,37 +267,39 @@ class MarkdownChunkingService:
                     'page': current_page
                 })
 
-        # Create chunks based on headers
+        # If no headers found, just return an empty list
+        if not headers:
+            return []
+
+        # Create chunks for each header section
         for i, header in enumerate(headers):
-            # Determine chunk boundaries
             start_line = header['line_num']
-            end_line = len(lines)
 
-            if i < len(headers) - 1:
-                end_line = headers[i + 1]['line_num'] - 1
+            # End line is either the next header's line number - 1, or the end of the document
+            end_line = headers[i + 1]['line_num'] - 1 if i < len(headers) - 1 else len(lines)
 
-            # Extract the text for this chunk
+            # Extract text for this chunk
             chunk_text = '\n'.join(lines[start_line - 1:end_line])
 
-            # Create unique ID based on header level and title
-            chunk_id = f"chunk_{i}_{header['level']}_{self._normalize_title(header['title'])}"
+            # Clean the chunk text by removing span tags
+            chunk_text = self.SPAN_TAG_PATTERN.sub('', chunk_text)
 
-            # Create chunk metadata
-            metadata = ChunkMetadata(
-                chunk_id=chunk_id,
-                level=header['level'],
-                title=header['title'],
-                parent_id=None,  # Will be set when building hierarchy
-                pdf_path=pdf_path,
-                page_number=header['page'],
-                start_line=start_line,
-                end_line=end_line
-            )
+            # Create a unique ID for this chunk (temporary, refined later)
+            chunk_id = f"chunk_{i}"
 
             # Create the chunk
             chunk = DocumentChunk(
                 text=chunk_text,
-                metadata=metadata
+                metadata=ChunkMetadata(
+                    chunk_id=chunk_id,
+                    level=header['level'],
+                    title=header['title'],
+                    parent_id=None,  # Will be set during hierarchy building
+                    pdf_path=pdf_path,
+                    page_number=header['page'] - 1,  # Store 0-indexed internally
+                    start_line=start_line,
+                    end_line=end_line
+                )
             )
 
             chunks.append(chunk)
@@ -239,115 +308,128 @@ class MarkdownChunkingService:
 
     def _build_chunk_hierarchy(self, chunks: List[DocumentChunk], root_chunk: DocumentChunk) -> None:
         """
-        Build a hierarchy of chunks based on header levels.
+        Build parent-child relationships between chunks based on header levels.
 
         Args:
-            chunks: List of chunks
-            root_chunk: Root document chunk
+            chunks: List of chunks from the document
+            root_chunk: Root document chunk to attach all top-level chunks to
         """
         if not chunks:
             return
 
-        # Sort chunks by their start line to ensure correct order
+        # Sort chunks by their start_line to ensure correct order
         sorted_chunks = sorted(chunks, key=lambda x: x.metadata.start_line)
 
-        # Keep track of the most recent chunk at each level
-        level_chunks = {0: root_chunk}
+        # Stack to keep track of parent chunks at different levels
+        # Initialize with the root chunk at level 0
+        parent_stack = [(0, root_chunk)]
 
         for chunk in sorted_chunks:
-            level = chunk.metadata.level
+            chunk_level = chunk.metadata.level
 
-            # Find the parent chunk (the most recent chunk with a lower level)
-            parent_level = level - 1
-            while parent_level > 0 and parent_level not in level_chunks:
-                parent_level -= 1
+            # Pop parent stack until we find a parent with level less than current chunk
+            while parent_stack and parent_stack[-1][0] >= chunk_level:
+                parent_stack.pop()
 
-            parent_chunk = level_chunks.get(parent_level, root_chunk)
+            if parent_stack:
+                parent_chunk = parent_stack[-1][1]
+                chunk.metadata.parent_id = parent_chunk.metadata.chunk_id
+                parent_chunk.children.append(chunk)
 
-            # Set parent ID in metadata
-            chunk.metadata.parent_id = parent_chunk.metadata.chunk_id
-
-            # Add as child to parent
-            parent_chunk.children.append(chunk)
-
-            # Update the most recent chunk at this level
-            level_chunks[level] = chunk
+            # Add current chunk to parent stack
+            parent_stack.append((chunk_level, chunk))
 
     def _normalize_title(self, title: str) -> str:
         """
-        Normalize a title for use in an ID.
+        Normalize a title for use in IDs by removing special characters.
 
         Args:
-            title: The title to normalize
+            title: Original title
 
         Returns:
-            Normalized title suitable for an ID
+            Normalized title
         """
-        # Remove special characters, convert to lowercase, replace spaces with underscores
-        normalized = re.sub(r'[^\w\s]', '', title).lower().replace(' ', '_')
-        # Truncate to a reasonable length
-        return normalized[:30]
+        # Remove special characters and replace spaces with underscores
+        normalized = re.sub(r'[^\w\s]', '', title).strip().lower()
+        normalized = re.sub(r'\s+', '_', normalized)
+
+        # Limit length
+        if len(normalized) > 50:
+            normalized = normalized[:50]
+
+        return normalized
 
     def save_chunks_to_json(self, root_chunk: DocumentChunk, output_path: str) -> None:
         """
-        Save the chunk hierarchy to a JSON file.
+        Save a document chunk hierarchy to a JSON file.
 
         Args:
             root_chunk: Root document chunk
             output_path: Path to save the JSON file
         """
         try:
+            # Convert the chunk hierarchy to a dictionary
             def chunk_to_dict(chunk):
-                return {
+                # Make sure title is clean before saving
+                clean_title = self._clean_title(chunk.metadata.title)
+
+                result = {
                     'text': chunk.text,
                     'metadata': {
                         'chunk_id': chunk.metadata.chunk_id,
                         'level': chunk.metadata.level,
-                        'title': chunk.metadata.title,
+                        'title': clean_title,
                         'parent_id': chunk.metadata.parent_id,
                         'pdf_path': chunk.metadata.pdf_path,
                         'page_number': chunk.metadata.page_number,
                         'start_line': chunk.metadata.start_line,
                         'end_line': chunk.metadata.end_line
-                    },
-                    'children': [chunk_to_dict(child) for child in chunk.children]
+                    }
                 }
 
-            # Convert the entire hierarchy to a dictionary
-            chunk_dict = chunk_to_dict(root_chunk)
+                if chunk.children:
+                    result['children'] = [chunk_to_dict(child) for child in chunk.children]
+                else:
+                    result['children'] = []
 
-            # Create directory if it doesn't exist
+                return result
+
+            # Convert root chunk to dictionary
+            root_dict = chunk_to_dict(root_chunk)
+
+            # Save to JSON file
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-            # Write to JSON file
             with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(chunk_dict, f, ensure_ascii=False, indent=2)
+                json.dump(root_dict, f, ensure_ascii=False, indent=2)
 
-            self.logger.info(f"Saved chunk hierarchy to {output_path}")
+            self.logger.info(f"Saved chunks to {output_path}")
 
         except Exception as e:
-            self.logger.error(f"Error saving chunks to JSON: {e}")
+            self.logger.error(f"Error saving chunks to {output_path}: {e}")
 
     def extract_flat_chunks(self, root_chunk: DocumentChunk) -> List[Dict[str, Any]]:
         """
-        Extract a flat list of all chunks with their metadata.
+        Extract a flat list of all chunks from a document hierarchy.
 
         Args:
             root_chunk: Root document chunk
 
         Returns:
-            List of dictionaries with chunk text and metadata
+            List of dictionaries with chunk information
         """
         flat_chunks = []
 
         def traverse_chunks(chunk):
+            # Make sure title is clean
+            clean_title = self._clean_title(chunk.metadata.title)
+
             # Add the current chunk
             flat_chunks.append({
                 'text': chunk.text,
                 'metadata': {
                     'chunk_id': chunk.metadata.chunk_id,
                     'level': chunk.metadata.level,
-                    'title': chunk.metadata.title,
+                    'title': clean_title,
                     'parent_id': chunk.metadata.parent_id,
                     'pdf_path': chunk.metadata.pdf_path,
                     'page_number': chunk.metadata.page_number,
@@ -356,30 +438,33 @@ class MarkdownChunkingService:
                 }
             })
 
-            # Traverse all children
+            # Recursively process children
             for child in chunk.children:
                 traverse_chunks(child)
 
-        traverse_chunks(root_chunk)
+        # Start traversal with all direct children of root
+        for child in root_chunk.children:
+            traverse_chunks(child)
+
         return flat_chunks
 
     def get_chunk_by_id(self, root_chunk: DocumentChunk, chunk_id: str) -> Optional[DocumentChunk]:
         """
-        Find a chunk by its ID in the hierarchy.
+        Find a chunk by its ID in the document hierarchy.
 
         Args:
             root_chunk: Root document chunk
             chunk_id: ID of the chunk to find
 
         Returns:
-            The found chunk, or None if not found
+            The found chunk or None
         """
         if root_chunk.metadata.chunk_id == chunk_id:
             return root_chunk
 
         for child in root_chunk.children:
-            found = self.get_chunk_by_id(child, chunk_id)
-            if found:
-                return found
+            result = self.get_chunk_by_id(child, chunk_id)
+            if result:
+                return result
 
         return None

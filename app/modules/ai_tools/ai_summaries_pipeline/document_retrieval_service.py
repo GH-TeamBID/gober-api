@@ -1,31 +1,31 @@
 import os
 import logging
-import requests
 import asyncio
 import aiohttp
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+from .temp_file_manager import TempFileManager
 
 class DocumentRetrievalService:
     """Service for retrieving PDF documents from URLs"""
 
-    def __init__(self, output_dir: str = "data/raw_pdfs"):
-        self.output_dir = output_dir
-        self.logger = logging.getLogger(__name__)
-        os.makedirs(output_dir, exist_ok=True)
+    def __init__(self, logger=None):
+        self.logger = logger or logging.getLogger(__name__)
+        self.temp_manager = TempFileManager(logger)
 
-    async def retrieve_document(self, url: str) -> Optional[str]:
+    async def retrieve_document(self, url: str) -> Optional[Tuple[str, bytes, str]]:
         """
-        Download PDF from URL and return local filepath.
+        Download PDF from URL and return filepath, content, and original filename.
 
         Args:
             url: The URL to download the PDF from
 
         Returns:
-            Local filepath to the downloaded PDF, or None if download failed
+            Tuple containing: temporary filepath to the downloaded PDF, PDF content as bytes, and original filename,
+            or None if download failed
         """
         # Make sure url is a string
         url = str(url) if url is not None else ""
-        
+
         if not url:
             self.logger.warning("Empty URL provided")
             return None
@@ -35,39 +35,44 @@ class DocumentRetrievalService:
 
             # Create a new aiohttp session
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+                # WARNING: Disabling SSL verification is insecure and should only be used
+                # if you trust the source and understand the risks (e.g., MITM attacks).
+                # This is added to handle potential self-signed or misconfigured certs
+                # on specific government portals like contrataciondelestado.es.
+                # Consider more secure alternatives (custom CA bundle) for production.
+                async with session.get(url, ssl=False) as response:
                     response.raise_for_status()
 
-                    # Simple filename extraction
+                    # Extract filename from Content-Disposition if available
                     filename = 'document.pdf'
                     if 'Content-Disposition' in response.headers:
                         content_disposition = response.headers['Content-Disposition']
                         if 'filename=' in content_disposition:
                             filename = content_disposition.split('filename=')[1].strip('"\'')
+                    else:
+                        # Try to extract from URL if no Content-Disposition
+                        url_path = url.split('?')[0]  # Remove query params
+                        if '/' in url_path:
+                            url_filename = url_path.split('/')[-1]
+                            if url_filename and '.' in url_filename:
+                                filename = url_filename
 
-                    # Generate a unique filename if needed
-                    base_filename = os.path.basename(filename)
-                    filepath = os.path.join(self.output_dir, base_filename)
+                    # Read content
+                    content = await response.read()
 
-                    # If file exists, return the existing file path
-                    if os.path.exists(filepath):
-                        self.logger.info(f"File {filepath} already exists, skipping download")
-                        return filepath
+                    # Create a temporary file with the content
+                    with self.temp_manager.temp_file(suffix='.pdf') as (temp_path, temp_file):
+                        temp_file.write(content)
+                        temp_file.flush()  # Ensure all data is written
 
-                    # Download the file using aiohttp
-                    with open(filepath, 'wb') as f:
-                        # Read the content
-                        content = await response.read()
-                        f.write(content)
-
-            self.logger.info(f"PDF downloaded to {filepath}")
-            return filepath
+                        self.logger.info(f"PDF downloaded to temporary file {temp_path}, original filename: {filename}")
+                        return (temp_path, content, filename)
 
         except Exception as e:
             self.logger.error(f"Error downloading PDF: {e}")
             return None
 
-    async def retrieve_documents(self, urls: Dict[str, str]) -> Dict[str, str]:
+    async def retrieve_documents(self, urls: Dict[str, str]) -> Dict[str, Tuple[str, bytes, str]]:
         """
         Download multiple PDFs from URLs in parallel
 
@@ -75,16 +80,16 @@ class DocumentRetrievalService:
             urls: Dictionary mapping document IDs to URLs
 
         Returns:
-            Dictionary mapping document IDs to local filepaths
+            Dictionary mapping document IDs to tuples of (local filepath, content bytes, original filename)
         """
-        pdf_paths = {}
+        pdf_data = {}
         tasks = []
         doc_ids = []
 
         for doc_id, url in urls.items():
             # Convert URL to string if it isn't already
             url_str = str(url) if url is not None else ""
-            
+
             if url_str:
                 tasks.append(self.retrieve_document(url_str))
                 doc_ids.append(doc_id)
@@ -98,6 +103,6 @@ class DocumentRetrievalService:
             if isinstance(result, Exception):
                 self.logger.error(f"Failed to download PDF for {doc_id}: {result}")
             elif result:
-                pdf_paths[doc_id] = result
+                pdf_data[doc_id] = result
 
-        return pdf_paths
+        return pdf_data
