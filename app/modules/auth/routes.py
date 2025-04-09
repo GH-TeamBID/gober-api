@@ -1,11 +1,12 @@
 # app/modules/auth/routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from app.modules.auth import schemas, services, models
 from app.core.database import get_db
 from typing import List
 from app.core.config import settings
+from app.modules.search import services as SearchService
 
 router = APIRouter()
 
@@ -290,43 +291,20 @@ async def delete_criteria(
     
     return criteria
 
-@router.get("/cpv-codes", response_model=schemas.PaginatedCpvCodeResponse)
+@router.get("/cpv-codes") #, response_model=schemas.PaginatedCpvCodeResponse
 async def search_cpv_codes(
-    code: str = Query(None, description="Filter by CPV code"),
-    description: str = Query(None, description="Filter by description"),
-    lang: str = Query("en", description="Language for description search (en or es)"),
-    skip: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(20, ge=1, le=100, description="Maximum number of items to return"),
-    db: Session = Depends(get_db),
+    request: Request,
     current_user: models.User = Depends(services.get_current_user)
 ):
-    """
-    Search for CPV (Common Procurement Vocabulary) codes.
-    
-    Supports filtering by code and description, and returns paginated results.
-    
-    - **code**: Filter by CPV code (partial match)
-    - **description**: Filter by description (partial match)
-    - **lang**: Language for description search (en or es)
-    - **skip**: Number of items to skip for pagination
-    - **limit**: Maximum number of items to return
-    """
-    if lang not in ["en", "es"]:
+    params = dict(request.query_params)
+    if 'code' not in params and 'description' not in params: 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Language must be 'en' or 'es'"
+            detail="match param required"
         )
-    
-    result = services.search_cpv_codes(
-        db, 
-        code_filter=code, 
-        description_filter=description, 
-        lang=lang,
-        skip=skip, 
-        limit=limit
-    )
-    
-    return result
+    params['match'] = params['code'] if 'code' in params else params['description']
+    result = SearchService.do_search('cpvs', params)
+    return {**result}
 
 @router.get("/public/cpv-codes", response_model=schemas.PaginatedCpvCodeResponse)
 async def public_search_cpv_codes(
