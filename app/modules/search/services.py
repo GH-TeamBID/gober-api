@@ -49,12 +49,6 @@ def do_search(index: str, params, filters = None):
                                 'value': float(filter_item['value']),
                                 'operator': '<='
                             })
-                        elif filter_item['name'] == 'category':
-                            processed_filters.append({
-                                'name': 'cpvs',
-                                'value': [filter_item['value']],
-                                'operator': 'IN'
-                            })
                         else:
                             # Pass other filters through unchanged
                             processed_filters.append(filter_item)
