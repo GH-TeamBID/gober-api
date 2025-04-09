@@ -63,6 +63,12 @@ def do_search(index_name: str, params: dict, body_filters: Optional[List[Dict]] 
                     elif name == 'submission_date_to':
                         dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
                         processed_filters.append({'name': 'submission_date', 'value': int(dt.timestamp()), 'operator': '<='})
+                    elif filter_item['name'] == 'category':
+                        processed_filters.append({
+                            'name': 'cps',
+                            'value': [filter_item['value']],
+                            'operator': 'IN'
+                        })
                     # Generic filter: pass name, value, and operator to helper
                     else:
                         processed_filters.append({
