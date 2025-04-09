@@ -8,7 +8,7 @@ import json
 import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, select, text, func, cast, String
-from app.modules.tenders.models import UserTender as UserTenderModel, TenderDocuments as TenderSummaryModel
+from app.modules.tenders.models import UserTender as UserTenderModel, TenderDocuments as TenderDocumentsModel
 from sqlalchemy.orm import Session
 from app.core.database import engine
 from app.core.utils.azure_blob_client import AzureBlobStorageClient
@@ -59,8 +59,6 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
         # Construct the URI from the hash (using the format from the example)
         tender_uri = f"http://gober.ai/spain/procedure/{tender_id}"
 
-    logger.info(f"Using tender URI: {tender_uri}")
-
     # Define multiple SPARQL queries
     named_queries = [
         ("core", query_core_template.format(tender_uri=tender_uri)),
@@ -76,42 +74,52 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
         ("lots", query_lots.format(tender_uri=tender_uri)),
     ]
 
-
     try:
-
         named_results = await neptune_client.execute_named_sparql_queries_parallel(named_queries)
-
         tender_detail = parse_tender_detail(named_results)
 
         try:
-            async with get_async_db() as session:
-                # Use a text-based comparison instead of a direct equality check
-                # This avoids SQL Server's type inference issues
-                stmt = (
-                    select(TenderSummaryModel)
-                    .where(
-                        # Use cast or func.varchar to ensure string comparison
-                        func.trim(cast(TenderSummaryModel.tender_uri, String)) ==
-                        func.trim(cast(text("'" + str(tender_id) + "'"), String))
-                    )
-                )
+            # Extract tender hash for database lookup
+            tender_hash = tender_id
+            if '/' in tender_id:
+                tender_hash = tender_id.split('/')[-1]
 
-                result = session.execute(stmt)
-                # The scalar_one_or_none() method is not awaitable - it's a direct method call
-                tender_summary = result.scalar_one_or_none()
+            # Use synchronous DB session for simpler query
+            from sqlalchemy.orm import Session
+            from app.core.database import engine
 
-                # If a summary exists, add it to the tender details
-                if tender_summary:
-                    logger.info(f"Found summary for tender: {tender_uri}")
-                    tender_detail.summary = tender_summary.summary
+            # Use a synchronous session for simplicity
+            with Session(engine) as db:
+                # First try exact match on tender_uri
+                tender_doc = db.query(TenderDocumentsModel).filter(
+                    TenderDocumentsModel.tender_uri == tender_hash
+                ).first()
+                
+                # If not found, try other potential formats
+                if not tender_doc and '/' not in tender_id:
+                    # Try with full URI
+                    tender_doc = db.query(TenderDocumentsModel).filter(
+                        TenderDocumentsModel.tender_uri == tender_uri
+                    ).first()
+                
+                # If a record exists, add its data to the tender details
+                if tender_doc:
+                    logger.info(f"Found TenderDocuments record for {tender_hash}")
+                    tender_detail.summary = tender_doc.summary
+                    tender_detail.url_document = tender_doc.url_document
+                    tender_detail.status = tender_doc.status
                 else:
-                    logger.info(f"No summary found for tender: {tender_uri}")
-
+                    logger.info(f"No TenderDocuments record found for tender {tender_hash}")
+                    tender_detail.summary = None
+                    tender_detail.url_document = None
+                    # Leave status as None if not found - don't set a default here
+                    
         except Exception as e:
-            # This catches database errors without failing the entire request
-            logger.error(f"Error retrieving tender summary: {str(e)}")
-            logger.error(f"Details: {type(e).__name__}, {e.args}")
-            # Continue without the summary
+            logger.error(f"Error retrieving TenderDocuments record: {str(e)}")
+            # Continue without the summary, url_document, or status
+            tender_detail.summary = None
+            tender_detail.url_document = None
+            # Don't set a default status here
 
         return tender_detail
 
@@ -617,8 +625,8 @@ async def create_or_update_tender_summary(tender_uri: str, summary: str) -> sche
     async with get_async_db() as session:
         # Check if a summary already exists
         stmt = (
-            select(TenderSummaryModel)
-            .where(TenderSummaryModel.tender_uri == tender_uri)
+            select(TenderDocumentsModel)
+            .where(TenderDocumentsModel.tender_uri == tender_uri)
         )
         result = await session.execute(stmt)
         existing_summary = result.scalar_one_or_none()
@@ -641,7 +649,7 @@ async def create_or_update_tender_summary(tender_uri: str, summary: str) -> sche
         else:
             # Create new summary
             logger.debug(f"Creating new summary for tender: {tender_uri}")
-            new_summary = TenderSummaryModel(
+            new_summary = TenderDocumentsModel(
                 id=str(uuid.uuid4()),
                 tender_uri=tender_uri,
                 summary=summary
@@ -735,6 +743,9 @@ def parse_sparql_binding_to_tender_preview(binding: Dict[str, Any]) -> schemas.T
     # Parse description
     description = binding.get('description', {}).get('value')
 
+    # Extract status from SPARQL binding if present, otherwise it will be set later
+    status = binding.get('status', {}).get('value') if 'status' in binding else None
+
     # Create and return the tender preview
     return schemas.TenderPreview(
         tender_hash=tender_hash,
@@ -747,7 +758,8 @@ def parse_sparql_binding_to_tender_preview(binding: Dict[str, Any]) -> schemas.T
         budget=budget,
         location=location,
         contract_type=contract_type,
-        cpv_categories=cpv_categories
+        cpv_categories=cpv_categories,
+        status=status
     )
 
 async def get_tenders_paginated(page: int = 1, size: int = 10) -> schemas.PaginatedTenderResponse:
@@ -1028,7 +1040,40 @@ async def get_tender_preview(tender_id: str) -> schemas.TenderPreview:
         # Add description field which we're now including
         if 'description' in binding and binding['description'].get('value'):
             tender_preview.description = binding['description']['value']
-
+        
+        # Get the tender hash for querying the status
+        tender_hash = tender_id
+        if '/' in tender_id:
+            tender_hash = tender_id.split('/')[-1]
+            
+        # Get status from TenderDocuments table using synchronous session
+        try:
+            # Import what we need for synchronous DB access            
+            with Session(engine) as db:
+                # Try with tender hash
+                tender_doc = db.query(TenderDocumentsModel).filter(
+                    TenderDocumentsModel.tender_uri == tender_hash
+                ).first()
+                
+                # If not found and we're using a hash, try with full URI
+                if not tender_doc and '/' not in tender_id:
+                    tender_doc = db.query(TenderDocumentsModel).filter(
+                        TenderDocumentsModel.tender_uri == tender_uri
+                    ).first()
+                
+                if tender_doc and tender_doc.status:
+                    tender_preview.status = tender_doc.status
+                    logger.info(f"Found status for tender {tender_hash}: {tender_doc.status}")
+                else:
+                    # Don't set default status, leave it as None
+                    logger.info(f"No status found for tender {tender_hash} in database")
+                    
+        except Exception as e:
+            logger.error(f"Error retrieving tender status: {str(e)}", exc_info=True)
+            # Don't set default status, leave it as None
+            
+        logger.info(f"Final tender preview status: {tender_preview.status}")
+        
         return tender_preview
 
     except Exception as e:
@@ -1062,8 +1107,8 @@ def get_tender_summary(tender_id: str, db: Session):
 
     try:
         # Query for the summary using SQLAlchemy ORM
-        tender_summary = db.query(TenderSummaryModel).filter(
-            TenderSummaryModel.tender_uri == tender_uri
+        tender_summary = db.query(TenderDocumentsModel).filter(
+            TenderDocumentsModel.tender_uri == tender_uri
         ).first()
 
         if tender_summary:
@@ -1238,7 +1283,7 @@ def parse_sparql_binding_to_tender_documents(binding: Dict[str, Any]) -> schemas
     )
 
 async def get_ai_documents(tender_id: str, db: Session):
-    tender_document = db.query(TenderSummaryModel).filter_by(tender_uri=tender_id).first()
+    tender_document = db.query(TenderDocumentsModel).filter_by(tender_uri=tender_id).first()
     if tender_document:
         sas_tokens = await get_ai_document_sas_token(tender_document.url_document)
         ai_doc_sas_token = sas_tokens.get("ai_doc_sas_token")
@@ -1286,7 +1331,7 @@ async def get_ai_tender_documents(tender_id: str, db: Session) -> schemas.Tender
     logger.info(f"Fetching AI documents for tender ID: {tender_id}")
 
     # Find the tender in the database
-    tender_document = db.query(TenderSummaryModel).filter_by(tender_uri=tender_id).first()
+    tender_document = db.query(TenderDocumentsModel).filter_by(tender_uri=tender_id).first()
 
     if not tender_document:
         logger.warning(f"Tender with ID {tender_id} not found")

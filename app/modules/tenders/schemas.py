@@ -9,11 +9,12 @@ class ContractNatureType(str, Enum):
     WORKS = "works"
 
 class TenderStatus(str, Enum):
-    PLANNED = "planned"
-    ACTIVE = "active"
-    CLOSED = "closed"
-    AWARDED = "awarded"
-    CANCELLED = "cancelled"
+    PRIOR_NOTICE = "Prior notice"
+    PUBLISHED = "Published"
+    EVALUATION = "Evaluation"
+    AWARDED = "Awarded"
+    SOLVED = "Solved"
+    CANCELED = "Canceled"
 
 class MonetaryValue(BaseModel):
     amount: float
@@ -124,6 +125,7 @@ class TenderDetail(BaseModel):
     title: str
     description: Optional[str] = None
     summary: Optional[str] = None
+    url_document: Optional[str] = None
 
     # Values
     estimated_value: Optional[MonetaryValue] = None
@@ -227,6 +229,7 @@ class TenderPreview(BaseModel):
     location: Optional[str] = None
     contract_type: Optional[str] = None
     cpv_categories: List[str] = []
+    status: Optional[str] = None
 
 class PaginatedTenderResponse(BaseModel):
     """Paginated response for tender listing"""
@@ -277,3 +280,7 @@ class TenderDocumentContentResponse(BaseModel):
     """Response model for the ai-document-content/{tender_id} endpoint that returns both document and chunks"""
     ai_document: str
     combined_chunks: str
+
+class UpdateTenderStatusRequest(BaseModel):
+    """Schema for updating a tender's status"""
+    status: str = Field(..., description="The status of the tender")

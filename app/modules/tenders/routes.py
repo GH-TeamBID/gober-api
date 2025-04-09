@@ -9,6 +9,9 @@ from app.core.database import get_db
 import logging
 from app.modules.search import services as SearchService
 from datetime import datetime, timezone
+from sqlalchemy import select
+from app.modules.tenders.models import TenderDocuments as TenderDocumentsModel
+import uuid
 
 router = APIRouter(tags=["tenders"])
 
@@ -206,6 +209,26 @@ async def get_tenders(
             saved_tender_uris=saved_tender_uris # Pass the list of saved URIs
         )
         
+        # Get a list of all tender IDs to fetch statuses in bulk
+        tender_ids = [tender["id"] for tender in result.get('items', [])]
+        
+        # Get the tender document statuses for all tender IDs
+        tender_statuses = {}
+        if tender_ids:
+            # Query the database for all tender documents in one go
+            try:
+                stmt = (
+                    select(TenderDocumentsModel.tender_uri, TenderDocumentsModel.status)
+                    .where(TenderDocumentsModel.tender_uri.in_(tender_ids))
+                )
+                results = db.execute(stmt).fetchall()
+                
+                # Create a dictionary mapping tender_id to status
+                tender_statuses = {tender_uri: status for tender_uri, status in results}
+                logger.debug(f"Found statuses for {len(tender_statuses)} tenders")
+            except Exception as e:
+                logger.error(f"Error retrieving tender statuses: {str(e)}")
+        
         # Format the results (same as before)
         items = [
             {
@@ -223,7 +246,8 @@ async def get_tenders(
                 },
                 "location": tender["location"],
                 "contract_type": tender["contract_type"],
-                "cpv_categories": tender["cps"]
+                "cpv_categories": tender["cps"],
+                "status": tender_statuses.get(tender["id"]) if tender["id"] in tender_statuses else None  # Only get from dictionary, don't set default
             }
             for tender in result.get('items', []) # Use .get for safety
         ]
@@ -497,4 +521,68 @@ def get_tender_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving tender summary: {str(e)}"
+        )
+
+@router.put("/status/{tender_id}", status_code=status.HTTP_200_OK)
+async def update_tender_status(
+    tender_id: str = Path(..., description="The URI or hash identifier of the tender to update"),
+    request_data: schemas.UpdateTenderStatusRequest = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update the status of a tender in the TenderDocuments table.
+    
+    This endpoint updates the status field of a tender in the TenderDocuments table.
+    The tender is identified by either its full URI or its hash identifier.
+    
+    Path parameters:
+    - **tender_id**: The URI or hash identifier of the tender to update
+    
+    Request body:
+    - **status**: The new status value
+    
+    Returns:
+        dict: A message indicating success or failure
+    """
+    try:
+        # Determine if the provided ID is a complete URI or just a hash/identifier
+        if tender_id.startswith('http'):
+            tender_hash = tender_id.split('/')[-1]
+        else:
+            tender_hash = tender_id
+            
+        logger.info(f"Updating status for tender: {tender_hash} to {request_data.status}")
+        
+        # Look up the TenderDocuments record
+        tender_doc = db.query(TenderDocumentsModel).filter(
+            TenderDocumentsModel.tender_uri == tender_hash
+        ).first()
+        
+        if not tender_doc:
+            # If it doesn't exist, create a new record
+            logger.info(f"TenderDocuments record not found for {tender_hash}, creating new record")
+            tender_doc = TenderDocumentsModel(
+                id=str(uuid.uuid4()),
+                tender_uri=tender_hash,
+                status=request_data.status
+            )
+            db.add(tender_doc)
+        else:
+            # Update the existing record
+            logger.info(f"Updating existing TenderDocuments record for {tender_hash}")
+            tender_doc.status = request_data.status
+            tender_doc.updated_at = datetime.now()
+            
+        # Commit changes
+        db.commit()
+            
+        return {"message": f"Successfully updated status for tender {tender_hash}", "status": request_data.status}
+    
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating tender status: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating tender status: {str(e)}"
         )

@@ -41,6 +41,7 @@ def do_search(index_name: str, params: dict, body_filters: Optional[List[Dict]] 
             return {'error': True, 'message': "Invalid datatype for body_filters"}
         
         processed_filters = []
+        status_filters = []
         for filter_item in body_filters:
             # Ensure filter_item is a dict and has required keys
             if isinstance(filter_item, dict) and 'name' in filter_item and 'value' in filter_item:
@@ -48,11 +49,34 @@ def do_search(index_name: str, params: dict, body_filters: Optional[List[Dict]] 
                 value = filter_item['value']
                 # Default operator to '=' if not provided or handle based on MeiliHelpers expectation
                 operator = filter_item.get('operator', '=') 
-                # expression = filter_item.get('expression', 'AND') # Keep track if needed by helper
                 
                 try:
+                    # Special handling for status filters - collect them separately
+                    if name == 'status':
+                        status_filters.append({
+                            'name': name,
+                            'value': value,
+                            'operator': operator,
+                            'expression': 'OR'  # Use OR for status filters
+                        })
+                    # Special handling for CPV codes - allow multiple values
+                    elif name == 'cpv':
+                        if isinstance(value, list):
+                            # Quote each CPV code value
+                            quoted_cpvs = [json.dumps(cpv) for cpv in value]
+                            processed_filters.append({
+                                'name': name,
+                                'value': quoted_cpvs,
+                                'operator': 'IN'
+                            })
+                        else:
+                            processed_filters.append({
+                                'name': name,
+                                'value': json.dumps(value),
+                                'operator': '='
+                            })
                     # Special handling for budget -> budget_amount
-                    if name == 'budget_min':
+                    elif name == 'budget_min':
                         processed_filters.append({'name': 'budget_amount', 'value': float(value), 'operator': '>='})
                     elif name == 'budget_max':
                         processed_filters.append({'name': 'budget_amount', 'value': float(value), 'operator': '<='})
@@ -69,18 +93,17 @@ def do_search(index_name: str, params: dict, body_filters: Optional[List[Dict]] 
                             'name': name, 
                             'value': value, 
                             'operator': operator
-                            # 'expression': expression # Add if helper needs it
                         })
                 except ValueError as e:
                     print(f"Warning: Could not parse value for filter '{name}': {value}. Error: {e}")
-                    # Decide whether to skip or return error
-                    # return {'error': True, 'message': f"Invalid value for filter '{name}': {value}"}
             else:
                 # Log or ignore invalid filter items
                 print(f"Warning: Skipping invalid filter item format: {filter_item}")
         
+        # Add status filters to the end of processed filters
+        processed_filters.extend(status_filters)
+        
         # Parse the processed filters into MeiliSearch filter string using the helper
-        # This helper needs to understand the {'name': ..., 'value': ..., 'operator': ...} structure
         parse_result = MeiliHelpers.parse_params_filters(processed_filters)
         if parse_result.get('error'): 
             return {'error': True, 'message': parse_result['message']}
