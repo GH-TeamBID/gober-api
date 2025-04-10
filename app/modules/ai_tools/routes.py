@@ -5,8 +5,11 @@ from app.modules.auth.models import User
 from app.core.database import get_db
 from app.modules.tenders.models import TenderDocuments
 from app.core.utils.azure_blob_client import AzureBlobStorageClient
-from .schemas import TenderSummaryRequest, TenderSummaryResponse, TenderSummaryStatusResponse
-from .services import process_document_summary, get_task_status
+from .schemas import (TenderSummaryRequest,
+                      TenderSummaryResponse,
+                      TenderSummaryStatusResponse,
+                      TenderQuestionRequest)
+from .services import process_document_summary, get_task_status, answer_tender_question
 
 router = APIRouter(tags=["AI Tools"])
 
@@ -65,3 +68,26 @@ async def get_tender_summary_status(
         task["task_id"] = task_id
 
     return task
+
+@router.post("/tender-question")
+async def ask_tender_question(
+    request: TenderQuestionRequest,
+):
+    """
+    Ask a specific question about a tender and get an AI-generated answer
+    based on the tender documents.
+
+    This function leverages Gemini to analyze tender document chunks and
+    provide focused answers with source references.
+    """
+    # Call the service function to process the question
+    answer = await answer_tender_question(
+        tender_hash=request.tender_hash,
+        question=request.question
+    )
+
+    return {
+        "tender_hash": request.tender_hash,
+        "question": request.question,
+        "answer": answer
+    }
