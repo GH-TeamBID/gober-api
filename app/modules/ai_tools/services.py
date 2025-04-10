@@ -7,7 +7,6 @@ from typing import Dict, Optional, List, Any
 from fastapi import BackgroundTasks
 from app.core.utils.azure_blob_client import AzureBlobStorageClient
 from app.modules.tenders.models import TenderDocuments
-from app.modules.ai_tools.ai_summaries_pipeline.custom_questions import QUESTIONS
 from sqlalchemy.orm import Session
 from app.core.database import engine
 from app.core.config import settings
@@ -122,12 +121,12 @@ async def _process_document_summary_task(
         # Verify required settings
         marker_api_key = settings.MARKER_API_KEY
         google_ai_api_key = settings.GOOGLE_AI_API_KEY
-        
+
         if not marker_api_key:
             raise ValueError("MARKER_API_KEY environment variable not set")
         if not google_ai_api_key:
             raise ValueError("GOOGLE_AI_API_KEY environment variable not set")
-        
+
         _update_task_status(task_id, "processing", 10, "Initializing services")
 
         # Initialize services
@@ -152,8 +151,6 @@ async def _process_document_summary_task(
 
         # Convert the Pydantic models to dictionaries for the workflow
         document_dicts = [doc.model_dump() for doc in documents]
-        if questions is None:
-            questions = QUESTIONS
 
         # Process the documents directly using the workflow
         result = await workflow.process_tender(
@@ -239,3 +236,48 @@ async def get_task_status(task_id: str) -> Optional[Dict[str, Any]]:
     task_data["task_id"] = task_id
 
     return task_data
+
+async def answer_tender_question(
+    tender_hash: str,
+    question: str
+) -> str:
+    """
+    Answer a question about a tender.
+    - Retrieve tender combined chunks from Azure
+    - Send question to Gemini API
+    - Return answer
+    """
+    try:
+        # Check if AI pipeline is available
+        if not AI_PIPELINE_AVAILABLE:
+            raise RuntimeError("AI summary pipeline components are not available")
+
+        logger.info(f"Answering question about tender {tender_hash}: {question}")
+
+        # Initialize the Azure client and AI generator service
+        azure_client = AzureBlobStorageClient()
+        ai_generator = AIDocumentGeneratorService(api_key=settings.GOOGLE_AI_API_KEY)
+
+        # Construct the path to the combined chunks file
+        combined_chunks_path = f"tenders/{tender_hash}/combined_chunks.json"
+
+        # Download the combined chunks
+        try:
+            chunks_data = azure_client.download_document(combined_chunks_path)
+            chunks_json = chunks_data.decode('utf-8') if isinstance(chunks_data, bytes) else chunks_data
+            logger.info(f"Successfully retrieved chunks for tender {tender_hash}")
+        except Exception as e:
+            logger.error(f"Error retrieving chunks for tender {tender_hash}: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve tender data: {str(e)}")
+
+        # Use the specialized method from AIDocumentGeneratorService
+        answer = await ai_generator.answer_question_with_chunks(chunks_json, question)
+
+        if answer is None:
+            raise RuntimeError("Failed to generate an answer")
+
+        return answer
+
+    except Exception as e:
+        logger.error(f"Error in answer_tender_question: {str(e)}", exc_info=True)
+        return f"Lo siento, no pude responder a tu pregunta debido a un error: {str(e)}"
