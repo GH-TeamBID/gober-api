@@ -45,6 +45,5 @@ class AgentTools:
         Get a summary of a tender using AI. This is a complete report of the tender,
         including all the information about the tender and attached documents processed by an expert analyst.
         """
-        # for developers, this is the ai_document, not this ai_summary,
-        # we call it summary since the agent reads the doctype above and its easier to understand.
+        # for developers, this is the ai_document, not the ai_summary.
         pass
