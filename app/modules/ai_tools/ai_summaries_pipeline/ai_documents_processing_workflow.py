@@ -183,15 +183,17 @@ class AIDocumentsProcessingWorkflow:
 
             # Generate a conversational summary using the AI document content
             # if summary does not exist in the database.
+            summary = None
             with Session(engine) as session:
                 tender_document = session.query(TenderDocuments).filter_by(tender_uri=output_id).first()
-                summary = None
                 if tender_document and tender_document.summary:
                     summary = tender_document.summary
-                else:
-                    summary = await self.ai_document_generator_service.generate_conversational_summary(
-                        document_content=ai_doc_content
-                    )
+
+            # Generate summary outside the database session if needed
+            if summary is None:
+                summary = await self.ai_document_generator_service.generate_conversational_summary(
+                    document_content=ai_doc_content
+                )
 
             # Prepare result
             processing_time = (datetime.now() - start_time).total_seconds()
