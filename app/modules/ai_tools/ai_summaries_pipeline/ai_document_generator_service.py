@@ -243,15 +243,7 @@ class AIDocumentGeneratorService:
         """
         self.logger.info("Generating conversational summary from AI document...")
 
-        # Define generation config using the proper types.GenerateContentConfig
-        generate_content_config = types.GenerateContentConfig(
-            temperature=1,
-            top_p=0.95,
-            top_k=40,
-            max_output_tokens=1200,
-            response_mime_type="text/plain",
-        )
-
+        # Prepare the prompt for summary generation
         prompt = f"""
         Eres un asistente experto en licitaciones públicas. A continuación, te presento un documento detallado
         sobre la licitación.
@@ -272,46 +264,83 @@ class AIDocumentGeneratorService:
         revisar los anexos para detalles específicos sobre las plantas, materiales y plazos de entrega.
         """
 
-        # Retry with exponential backoff
-        retry_count = 0
-        initial_delay = 1.0
-        delay = initial_delay
+        # For summary generation, we don't need a system prompt with chunks
+        # We'll just use an empty string as the system prompt
+        system_prompt = ""
 
-        while retry_count <= max_retries:
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=[{
-                        "role": "user",
-                        "parts": [{"text": prompt}]
-                    }],
-                    config=generate_content_config
-                )
+        # Use existing retry method for consistent handling
+        start_time = time.time()
+        response = await self._process_section_with_retries(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            section_number=0,  # Summary section = 0
+            total_sections=1,  # Only processing one section
+            section_start_time=start_time,
+            max_retries=max_retries
+        )
 
-                # Log token usage if available
-                if hasattr(response, 'usage_metadata'):
-                    self.logger.info("\nToken Usage (Summary):")
-                    self.logger.info(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-                    self.logger.info(f"Response tokens: {response.usage_metadata.candidates_token_count}")
-                    self.logger.info(f"Total tokens: {response.usage_metadata.total_token_count}")
+        # Log timing
+        if response:
+            total_time = time.time() - start_time
+            self.logger.info(f"Summary generated in {total_time:.2f} seconds")
 
-                return response.text
+        return response
 
-            except Exception as e:
-                retry_count += 1
-                self.logger.error(f"Error generating conversational summary (attempt {retry_count}/{max_retries}): {e}")
+    async def answer_question_with_chunks(
+        self,
+        chunks_json: str,
+        question: str,
+        max_retries: int = 3
+    ) -> Optional[str]:
+        """
+        Answer a specific question using document chunks.
 
-                if retry_count > max_retries:
-                    self.logger.error(f"Failed to generate conversational summary after {max_retries} retries")
-                    return None
+        Args:
+            chunks_json: JSON string containing chunks data
+            question: The question to answer
+            max_retries: Maximum number of retries for API calls
 
-                # Add jitter to avoid thundering herd
-                jitter = random.uniform(0.8, 1.2)
-                actual_delay = delay * jitter
-                self.logger.info(f"Retrying in {actual_delay:.2f} seconds...")
-                time.sleep(actual_delay)
+        Returns:
+            Answer text if successful, None otherwise
+        """
+        self.logger.info(f"Answering question using document chunks: {question[:50]}...")
 
-                # Exponential backoff
-                delay *= 2
+        # Load chunks from JSON string
+        chunks = self._load_chunks_from_json_string(chunks_json)
+        if not chunks:
+            self.logger.error("No chunks could be loaded from JSON string")
+            return None
 
-        return None
+        # Create system prompt with chunks
+        chunks_system_prompt = self._build_system_prompt_with_chunks(chunks)
+
+        # Prepare the user prompt
+        user_prompt = f"""Por favor, responde a la siguiente pregunta sobre esta licitación, usando la información
+        proporcionada en los fragmentos de documentos:
+
+        Pregunta: {question}
+
+        IMPORTANTE:
+        1. Cita siempre tus fuentes usando los IDs de fragmento entre corchetes.
+        2. Si la información NO está disponible en los fragmentos, indica claramente que esa información no se encuentra en la documentación.
+        3. NO inventes información.
+        4. Utiliza el formato markdown para tu respuesta.
+        """
+
+        # Use existing retry method for consistent handling
+        start_time = time.time()
+        response = await self._process_section_with_retries(
+            prompt=user_prompt,
+            system_prompt=chunks_system_prompt,
+            section_number=1,  # Single question = section 1
+            total_sections=1,  # Only processing one section
+            section_start_time=start_time,
+            max_retries=max_retries
+        )
+
+        # Log timing
+        if response:
+            total_time = time.time() - start_time
+            self.logger.info(f"Question answered in {total_time:.2f} seconds")
+
+        return response

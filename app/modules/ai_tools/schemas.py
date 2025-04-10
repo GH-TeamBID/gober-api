@@ -35,3 +35,8 @@ class TenderSummaryStatusResponse(BaseModel):
     updated_at: Optional[datetime] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+class TenderQuestionRequest(BaseModel):
+    """Request model for asking a question about a tender"""
+    tender_hash: str
+    question: str

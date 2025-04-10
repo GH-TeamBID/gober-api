@@ -6,7 +6,7 @@ import json
 from sqlalchemy.orm import Session
 from app.core.database import engine
 from app.modules.tenders.models import TenderDocuments
-
+from app.modules.ai_tools.ai_summaries_pipeline.custom_questions import QUESTIONS
 from app.modules.ai_tools.ai_summaries_pipeline.markdown_chunking_service import MarkdownChunkingService
 from app.modules.ai_tools.ai_summaries_pipeline.chunk_reference_utility import ChunkReferenceUtility
 from app.modules.ai_tools.ai_summaries_pipeline.temp_file_manager import TempFileManager
@@ -146,17 +146,7 @@ class AIDocumentsProcessingWorkflow:
             self.logger.info("Step 6: Generating AI document")
 
             # Use provided questions or default questions
-            doc_questions = questions or [
-                """
-                1. ¿Cuál es el objeto de la licitación?
-                2. ¿Cuáles son los requisitos técnicos principales?
-                3. ¿Cuál es el presupuesto y la forma de pago?
-                """,
-                """
-                4. ¿Cuáles son los criterios de adjudicación?
-                5. ¿Cuáles son los plazos clave?
-                """
-            ]
+            doc_questions = questions or QUESTIONS
 
             # Generate AI document directly from content
             ai_doc_content = await self.ai_document_generator_service.generate_ai_documents_with_content(
@@ -183,15 +173,17 @@ class AIDocumentsProcessingWorkflow:
 
             # Generate a conversational summary using the AI document content
             # if summary does not exist in the database.
+            summary = None
             with Session(engine) as session:
                 tender_document = session.query(TenderDocuments).filter_by(tender_uri=output_id).first()
-                summary = None
                 if tender_document and tender_document.summary:
                     summary = tender_document.summary
-                else:
-                    summary = await self.ai_document_generator_service.generate_conversational_summary(
-                        document_content=ai_doc_content
-                    )
+
+            # Generate summary outside the database session if needed
+            if summary is None:
+                summary = await self.ai_document_generator_service.generate_conversational_summary(
+                    document_content=ai_doc_content
+                )
 
             # Prepare result
             processing_time = (datetime.now() - start_time).total_seconds()
