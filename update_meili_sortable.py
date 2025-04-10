@@ -15,7 +15,7 @@ except Exception as e:
 
 # Define the attributes you want to be sortable
 # Add any other fields you might want to sort by in the future
-desired_sortable = ['submission_date', 'budget_amount', 'title'] # Example
+desired_sortable = ['submission_date', 'budget_amount', 'title', 'tender_id', 'n_lots', 'pub_org_name', 'contract_type', 'location']
 
 # Check if an update is needed
 if set(desired_sortable) != set(current_sortable):
