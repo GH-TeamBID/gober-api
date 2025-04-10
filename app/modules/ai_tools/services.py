@@ -259,7 +259,7 @@ async def answer_tender_question(
         ai_generator = AIDocumentGeneratorService(api_key=settings.GOOGLE_AI_API_KEY)
 
         # Construct the path to the combined chunks file
-        combined_chunks_path = f"tenders/{tender_hash}/combined_chunks.json"
+        combined_chunks_path = f"tenders/tender_{tender_hash}/combined_chunks.json"
 
         # Download the combined chunks
         try:

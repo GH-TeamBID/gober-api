@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import ssl
 from typing import Optional, Dict, Tuple, Any
 from .temp_file_manager import TempFileManager
 
@@ -58,7 +59,14 @@ class DocumentConversionService:
                 # Submit the PDF for processing using aiohttp
                 self.logger.info(f"Submitting PDF for conversion using temporary file...")
 
-                async with aiohttp.ClientSession() as session:
+                # Create a custom SSL context for better compatibility
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Use the custom SSL context with aiohttp
+                conn = aiohttp.TCPConnector(ssl=ssl_context)
+                async with aiohttp.ClientSession(connector=conn) as session:
                     # Use file-based upload
                     with open(temp_file_path, 'rb') as f:
                         form_data = aiohttp.FormData()
