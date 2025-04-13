@@ -39,6 +39,12 @@ class MarkdownChunkingService:
     PAGE_MARKER_PATTERN = re.compile(r'\{(\d+)\}------------------------------------------------')
     # Pattern to match span tags - match any span tag regardless of its id attribute value
     SPAN_TAG_PATTERN = re.compile(r'<span[^>]*>.*?</span>')
+    # Pattern to match markdown tables - detects lines that start with | and contain |
+    TABLE_PATTERN = re.compile(r'^\s*\|.*\|.*$', re.MULTILINE)
+    # Pattern to match table row separators and header dividers in markdown tables
+    TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|[\s\-:|]+\|[\s\-:|]+.*$', re.MULTILINE)
+    # Pattern to detect multi-column text that might be a table
+    POSSIBLE_TABLE_PATTERN = re.compile(r'^\s*\|[\w\s]+\|[\w\s]+.*\|', re.MULTILINE)
 
     def __init__(self, logger=None):
         """Initialize the chunking service"""
@@ -59,6 +65,65 @@ class MarkdownChunkingService:
         # Trim any extra whitespace
         cleaned_title = cleaned_title.strip()
         return cleaned_title
+
+    def _remove_tables(self, text: str) -> str:
+        """
+        Remove markdown tables from text
+
+        Args:
+            text: Text potentially containing markdown tables
+
+        Returns:
+            Text with markdown tables removed
+        """
+        # Split the text into lines
+        lines = text.split('\n')
+        cleaned_lines = []
+
+        # Flag to track if we're currently inside a table section
+        in_table = False
+        table_start_line = 0
+        consecutive_table_lines = 0
+
+        for i, line in enumerate(lines):
+            # Check if the line matches any table pattern
+            is_table_line = (self.TABLE_PATTERN.match(line) or
+                           self.TABLE_SEPARATOR_PATTERN.match(line) or
+                           self.POSSIBLE_TABLE_PATTERN.match(line))
+
+            # Beginning of a potential table
+            if is_table_line and not in_table:
+                in_table = True
+                table_start_line = i
+                consecutive_table_lines = 1
+            # Continuing a table
+            elif is_table_line and in_table:
+                consecutive_table_lines += 1
+            # End of a table section
+            elif not is_table_line and in_table:
+                # Only treat it as a table if we've seen at least 2 consecutive table-like lines
+                # Otherwise it might just be a line with | characters
+                in_table = False
+                if consecutive_table_lines < 2:
+                    # Not actually a table, add the lines back
+                    cleaned_lines.extend(lines[table_start_line:i])
+
+            # Add non-table lines to our result
+            if not in_table and not is_table_line:
+                cleaned_lines.append(line)
+
+        # Handle case where the document ends while still in a table
+        if in_table and consecutive_table_lines < 2:
+            # Not actually a table, add the lines back
+            cleaned_lines.extend(lines[table_start_line:])
+
+        # Join the cleaned lines
+        cleaned_text = '\n'.join(cleaned_lines)
+
+        # Remove any resulting consecutive newlines (more than 2)
+        cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+
+        return cleaned_text
 
     def chunk_markdown_content(self, content: str, doc_id: str, pdf_path: str) -> DocumentChunk:
         """
@@ -192,7 +257,10 @@ class MarkdownChunkingService:
         # Build chunk hierarchy - this must be done before assigning section IDs
         self._build_chunk_hierarchy(chunks, root_chunk)
 
-        # Now assign structured chunk IDs with document_ID,page_number,section_id format
+        # Extract PDF base name to use in chunk IDs
+        pdf_base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+
+        # Now assign structured chunk IDs with pdf_base_name,page_number,section_id format
         section_counters = {}
 
         def assign_structured_ids(chunk, parent_section_id=None):
@@ -215,8 +283,8 @@ class MarkdownChunkingService:
             # Update the actual metadata page_number field to be 1-indexed
             chunk.metadata.page_number = page_number
 
-            # Create the structured chunk ID: document_ID,page_number,section_id
-            chunk.metadata.chunk_id = f"chunk_{doc_id},{page_number},{section_id}"
+            # Create the structured chunk ID: pdf_base_name,page_number,section_id
+            chunk.metadata.chunk_id = f"chunk_{pdf_base_name},{page_number},{section_id}"
 
             # Recursively assign IDs to children
             for child in chunk.children:
@@ -278,11 +346,18 @@ class MarkdownChunkingService:
             # End line is either the next header's line number - 1, or the end of the document
             end_line = headers[i + 1]['line_num'] - 1 if i < len(headers) - 1 else len(lines)
 
-            # Extract text for this chunk
-            chunk_text = '\n'.join(lines[start_line - 1:end_line])
+            # Extract text for this chunk, filtering out page markers
+            chunk_lines = [line for line in lines[start_line - 1:end_line] if not self.PAGE_MARKER_PATTERN.match(line)]
+            chunk_text = '\n'.join(chunk_lines)
 
             # Clean the chunk text by removing span tags
             chunk_text = self.SPAN_TAG_PATTERN.sub('', chunk_text)
+
+            # Remove tables from the chunk text
+            chunk_text = self._remove_tables(chunk_text)
+
+            # Normalize multiple newlines to a single newline
+            chunk_text = re.sub(r'\\n{2,}', '\\n', chunk_text).strip()
 
             # Create a unique ID for this chunk (temporary, refined later)
             chunk_id = f"chunk_{i}"
