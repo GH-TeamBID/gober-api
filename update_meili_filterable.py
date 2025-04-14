@@ -29,7 +29,7 @@ except Exception as e:
 desired_filterable = sorted(list(set([
     'id', # <--- Add this field for saved tender filtering
     'budget_amount',
-    'cpvs',
+    'cps',
     'location',
     'status',
     'updated',
