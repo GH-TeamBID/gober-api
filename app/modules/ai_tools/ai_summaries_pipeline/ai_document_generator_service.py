@@ -57,11 +57,12 @@ class AIDocumentGeneratorService:
         system_prompt += "1. Analiza estos fragmentos y proporciona información precisa basándote en ellos.\n"
         system_prompt += "2. Cuando cites información de un fragmento, DEBES incluir su ID exacto entre corchetes [chunk_id: XXX] al final de cada afirmación importante.\n"
         system_prompt += "3. COPIA EXACTAMENTE los IDs de los fragmentos tal como aparecen. No abrevies ni cambies el formato.\n"
-        system_prompt += "4. Los IDs tienen el formato chunk_documento,página,sección (por ejemplo: chunk_DOC20241111094338ANEXO_I,1,s2_3) - cópialos completos.\n"
-        system_prompt += "5. No inventes información que no esté en los fragmentos proporcionados.\n"
-        system_prompt += "6. Tu respuesta será mostrada al usuario con enlaces a las fuentes originales, por lo que es crucial que cites correctamente los IDs de fragmentos.\n"
-        system_prompt += "7. IMPORTANTE: Los usuarios solo verán la información de un fragmento cuando utilizas la referencia EXACTA. Si modificas el ID, no podrán ver la información original.\n"
-        system_prompt += "8. Estructura tu respuesta en formato markdown."
+        system_prompt += "4. Los IDs tienen el formato chunk_documento,página,sección (por ejemplo: chunk_doc_1,1,s2_3) - cópialos completos.\n"
+        system_prompt += "5. Si el chunk no tiene información relevante para el usuario, omite la referencia, como por ejemplo Titulos de secciones.\n"
+        system_prompt += "6. No inventes información que no esté en los fragmentos proporcionados.\n"
+        system_prompt += "7. Tu respuesta será mostrada al usuario con enlaces a las fuentes originales, por lo que es crucial que cites correctamente los IDs de fragmentos.\n"
+        system_prompt += "8. IMPORTANTE: Los usuarios solo verán la información de un fragmento cuando utilizas la referencia EXACTA. Si modificas el ID, no podrán ver la información original.\n"
+        system_prompt += "9. Estructura tu respuesta en formato markdown."
 
         return system_prompt
 
