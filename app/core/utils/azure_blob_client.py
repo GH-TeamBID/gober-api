@@ -107,7 +107,7 @@ class AzureBlobStorageClient:
             logging.error(error_msg)
             raise RuntimeError(error_msg)
 
-    def create_tender_folder(self, tender_hash):
+    def create_tender_folder(self, folder_name):
         """
         Creates a logical folder structure for a tender.
         In Azure Blob Storage, folders are virtual concepts represented by blob name prefixes.
@@ -120,7 +120,7 @@ class AzureBlobStorageClient:
         """
         # In Azure Blob Storage, folders are just prefixes in blob names
         # We'll use a standard path format for all tenders
-        folder_path = f"tenders/{tender_hash}/"
+        folder_path = f"tenders/{folder_name}/"
 
         # No need to create placeholder files in Azure Blob Storage
         # Folders are virtual concepts represented by the prefix in the blob name
@@ -128,7 +128,7 @@ class AzureBlobStorageClient:
 
         return folder_path
 
-    def upload_tender_file(self, tender_hash, file_type, content, file_name=None):
+    def upload_tender_file(self, folder_name, file_type, content, file_name=None):
         """
         Upload a file to the specific tender folder with standard naming.
 
@@ -142,7 +142,7 @@ class AzureBlobStorageClient:
             str: Blob path of the uploaded file
         """
         # Create the folder structure if it doesn't exist
-        folder_path = f"tenders/{tender_hash}/"
+        folder_path = f"tenders/{folder_name}/"
 
         # Determine the file name based on type
         if not file_name:
@@ -150,6 +150,8 @@ class AzureBlobStorageClient:
                 file_name = 'combined_chunks.json'
             elif file_type == 'ai_document':
                 file_name = 'ai_document.md'
+            elif file_type == 'pdf_document':
+                file_name = 'document.pdf'
             else:
                 file_name = f"{file_type}.data"
 
@@ -164,6 +166,39 @@ class AzureBlobStorageClient:
             return blob_path
         else:
             raise ValueError(f"Unsupported content type: {type(content)}")
+
+    def upload_tender_pdf(self, folder_name, pdf_content, filename):
+        """
+        Upload a PDF file to the specific tender folder's pdfs directory.
+
+        Args:
+            folder_name (str): Unique identifier for the tender
+            pdf_content (bytes): PDF content as bytes
+            filename (str): Name to use for the PDF file (should include .pdf extension)
+
+        Returns:
+            str: Blob path of the uploaded PDF file
+        """
+        # Create the folder path
+        folder_path = f"tenders/{folder_name}/pdfs/"
+
+        # Ensure filename is non-empty and valid
+        if not filename or filename == 'document.pdf':
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"document_{timestamp}.pdf"
+
+        # Sanitize filename to avoid problematic characters
+        safe_filename = filename.replace(' ', '_')
+
+        # Complete blob path
+        blob_path = f"{folder_path}{safe_filename}"
+
+        # Upload the PDF content
+        self.upload_bytes(pdf_content, blob_path)
+
+        logging.info(f"PDF uploaded to {blob_path}")
+        return blob_path
 
     def download_document(self, blob_path, file_path=None):
         """

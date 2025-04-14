@@ -44,18 +44,34 @@ class DocumentRetrievalService:
                     response.raise_for_status()
 
                     # Extract filename from Content-Disposition if available
-                    filename = 'document.pdf'
+                    filename = None
                     if 'Content-Disposition' in response.headers:
                         content_disposition = response.headers['Content-Disposition']
                         if 'filename=' in content_disposition:
                             filename = content_disposition.split('filename=')[1].strip('"\'')
-                    else:
-                        # Try to extract from URL if no Content-Disposition
+
+                    # Try to extract from URL if no filename was found
+                    if not filename:
                         url_path = url.split('?')[0]  # Remove query params
                         if '/' in url_path:
                             url_filename = url_path.split('/')[-1]
                             if url_filename and '.' in url_filename:
                                 filename = url_filename
+
+                    # If we still don't have a filename, use a default with timestamp
+                    if not filename:
+                        import datetime
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                        filename = f"document_{timestamp}.pdf"
+
+                    # Clean up filename by removing DOC{date} prefixes
+                    if filename.startswith("DOC"):
+                        # Try to find the first real part of the filename after the DOC prefix
+                        # The DOC prefix pattern looks like: DOC20250326155238
+                        import re
+                        match = re.match(r"DOC\d{14}(.*)", filename)
+                        if match and match.group(1):
+                            filename = match.group(1)
 
                     # Read content
                     content = await response.read()

@@ -219,7 +219,13 @@ class MarkdownChunkingService:
             if root_chunk:
                 document_chunks[doc_id] = root_chunk
 
-        return document_chunks
+        all_flat_chunks = []
+        for doc_id, root_chunk in document_chunks.items():
+            if root_chunk:  # Check if chunking was successful
+                flat_chunks = self.extract_flat_chunks(root_chunk)
+                all_flat_chunks.extend(flat_chunks)
+
+        return all_flat_chunks
 
     def _process_markdown_content(self, content: str, doc_id: str, pdf_path: str) -> DocumentChunk:
         """

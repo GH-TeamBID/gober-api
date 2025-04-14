@@ -94,14 +94,14 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
                 tender_doc = db.query(TenderDocumentsModel).filter(
                     TenderDocumentsModel.tender_uri == tender_hash
                 ).first()
-                
+
                 # If not found, try other potential formats
                 if not tender_doc and '/' not in tender_id:
                     # Try with full URI
                     tender_doc = db.query(TenderDocumentsModel).filter(
                         TenderDocumentsModel.tender_uri == tender_uri
                     ).first()
-                
+
                 # If a record exists, add its data to the tender details
                 if tender_doc:
                     logger.info(f"Found TenderDocuments record for {tender_hash}")
@@ -113,7 +113,7 @@ async def get_tender_detail(tender_id: str) -> schemas.TenderDetail:
                     tender_detail.summary = None
                     tender_detail.url_document = None
                     # Leave status as None if not found - don't set a default here
-                    
+
         except Exception as e:
             logger.error(f"Error retrieving TenderDocuments record: {str(e)}")
             # Continue without the summary, url_document, or status
@@ -585,25 +585,25 @@ def get_user_saved_tenders(db: Session, user_id: str) -> List[schemas.UserTender
 def get_user_saved_tenders_uris(db: Session, user_id: str) -> List[str]:
     """
     Get the URIs of all tenders saved by a user.
-    
+
     Args:
         db: SQLAlchemy Session
         user_id: The ID of the user
-        
+
     Returns:
         List[str]: List of saved tender URIs for the user
     """
     logger.debug(f"Getting saved tender URIs for user {user_id}")
-    
+
     try:
         # Query only the tender_uri column
         saved_uris = db.query(UserTenderModel.tender_uri).filter(
             UserTenderModel.user_id == user_id
         ).all()
-        
+
         # The result is a list of tuples, extract the first element of each tuple
         return [uri[0] for uri in saved_uris]
-        
+
     except Exception as e:
         logger.error(f"Error retrieving saved tender URIs for user {user_id}: {str(e)}")
         # Return empty list in case of error to avoid breaking the search
@@ -1040,40 +1040,40 @@ async def get_tender_preview(tender_id: str) -> schemas.TenderPreview:
         # Add description field which we're now including
         if 'description' in binding and binding['description'].get('value'):
             tender_preview.description = binding['description']['value']
-        
+
         # Get the tender hash for querying the status
         tender_hash = tender_id
         if '/' in tender_id:
             tender_hash = tender_id.split('/')[-1]
-            
+
         # Get status from TenderDocuments table using synchronous session
         try:
-            # Import what we need for synchronous DB access            
+            # Import what we need for synchronous DB access
             with Session(engine) as db:
                 # Try with tender hash
                 tender_doc = db.query(TenderDocumentsModel).filter(
                     TenderDocumentsModel.tender_uri == tender_hash
                 ).first()
-                
+
                 # If not found and we're using a hash, try with full URI
                 if not tender_doc and '/' not in tender_id:
                     tender_doc = db.query(TenderDocumentsModel).filter(
                         TenderDocumentsModel.tender_uri == tender_uri
                     ).first()
-                
+
                 if tender_doc and tender_doc.status:
                     tender_preview.status = tender_doc.status
                     logger.info(f"Found status for tender {tender_hash}: {tender_doc.status}")
                 else:
                     # Don't set default status, leave it as None
                     logger.info(f"No status found for tender {tender_hash} in database")
-                    
+
         except Exception as e:
             logger.error(f"Error retrieving tender status: {str(e)}", exc_info=True)
             # Don't set default status, leave it as None
-            
+
         logger.info(f"Final tender preview status: {tender_preview.status}")
-        
+
         return tender_preview
 
     except Exception as e:
@@ -1288,29 +1288,61 @@ async def get_ai_documents(tender_id: str, db: Session):
         sas_tokens = await get_ai_document_sas_token(tender_document.url_document)
         ai_doc_sas_token = sas_tokens.get("ai_doc_sas_token")
         combined_chunks_sas_token = sas_tokens.get("combined_chunks_sas_token")
+        pdf_files = sas_tokens.get("pdf_files", {})
         return {
             "url_document": tender_document.url_document,
             "summary": tender_document.summary,
             "ai_doc_sas_token": ai_doc_sas_token,
-            "combined_chunks_sas_token": combined_chunks_sas_token
+            "combined_chunks_sas_token": combined_chunks_sas_token,
+            "pdf_files": pdf_files
         }
     else: return None
 
-async def get_ai_document_sas_token(ai_document_url: str) -> str:
+async def get_ai_document_sas_token(ai_document_url: str) -> dict:
     """
-    Get a SAS token for a specific tender document.
+    Get SAS tokens for tender documents including AI document, combined chunks, and all PDFs.
+
+    Args:
+        ai_document_url: The base URL for the tender documents
+
+    Returns:
+        dict: Dictionary containing SAS tokens for all documents
     """
     azure_client = AzureBlobStorageClient()
 
+    # Paths for AI document and combined chunks
     ai_doc_path = f"{ai_document_url}ai_document.md"
     combined_chunks_path = f"{ai_document_url}combined_chunks.json"
 
+    # Generate SAS tokens for AI document and combined chunks
     ai_doc_sas_token = azure_client.generate_sas_url(ai_doc_path)
     combined_chunks_sas_token = azure_client.generate_sas_url(combined_chunks_path)
 
+    # Define the PDF folder path
+    pdf_folder_path = f"{ai_document_url}pdfs/"
+
+    # List all PDFs in the folder
+    pdf_files = {}
+    try:
+        # Get list of all blobs with the PDF folder prefix
+        pdf_blobs = azure_client.list_documents(prefix=pdf_folder_path)
+
+        # Generate SAS token for each PDF
+        for pdf_blob in pdf_blobs:
+            # Extract filename from the full path
+            filename = pdf_blob.split('/')[-1]
+            pdf_sas_token = azure_client.generate_sas_url(pdf_blob)
+            pdf_files[filename] = pdf_sas_token
+
+    except Exception as e:
+        logging.error(f"Error listing PDF files in {pdf_folder_path}: {str(e)}")
+        # Continue without PDFs if there's an error
+
+    # Return all SAS tokens
     return {
         "ai_doc_sas_token": ai_doc_sas_token,
-        "combined_chunks_sas_token": combined_chunks_sas_token
+        "combined_chunks_sas_token": combined_chunks_sas_token,
+        "pdf_files": pdf_files
     }
 
 
@@ -1410,9 +1442,9 @@ async def get_ai_document_content_from_azure(tender_id: str, db: Session) -> Opt
         if ai_metadata and ai_metadata.get("ai_doc_sas_token") and ai_metadata.get("combined_chunks_sas_token"):
             ai_doc_sas_url = ai_metadata["ai_doc_sas_token"]
             chunks_sas_url = ai_metadata["combined_chunks_sas_token"]
-            
+
             logger.info(f"Fetching AI content and chunks using SAS URLs for tender {tender_id}")
-            
+
             # Fetch both contents concurrently
             ai_doc_content, chunks_json_content = await asyncio.gather(
                 _fetch_content_from_url(ai_doc_sas_url),

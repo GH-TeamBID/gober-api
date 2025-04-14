@@ -61,7 +61,7 @@ async def process_document_summary(
 
     # Generate a unique output ID if not provided
     if not output_id:
-        output_id = f"summary_{str(uuid.uuid4())[:8]}"
+        output_id = f"tender_{tender_hash}"
 
     TASKS[task_id] = {
         "status": "queued",
